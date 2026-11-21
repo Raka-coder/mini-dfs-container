@@ -5,6 +5,8 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Iterator
 
+import grpc
+
 from common.checksum import combine_checksums, sha256_bytes
 from common.config import config
 from common.grpc_util import FRAME, get_channel, with_retry
@@ -76,9 +78,14 @@ class Uploader:
                         )
                         offset += len(data)
 
-                resp = with_retry(
-                    lambda: dfs_pb2_grpc.DataNodeServiceStub(get_channel(t.address)).StoreChunk(gen(), timeout=60.0)
-                )
+                try:
+                    resp = with_retry(
+                        lambda: dfs_pb2_grpc.DataNodeServiceStub(get_channel(t.address)).StoreChunk(gen(), timeout=60.0)
+                    )
+                except grpc.RpcError as e:
+                    # A dead replica must not abort the upload; reallocation picks another node.
+                    logger.warning("STORE_FAILED chunk=%s node=%s err=%s", plan.chunk_id, t.node_id, e.code())
+                    continue
                 if resp.ok and resp.checksum == checksum:
                     stored_on.append(t.node_id)
                 else:

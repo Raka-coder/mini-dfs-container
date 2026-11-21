@@ -1,0 +1,5 @@
+tier,nodes,profile,workers,status
+1,3,full,1,PENDING_RUN
+1,3,full,2,PENDING_RUN
+1,3,full,4,PENDING_RUN
+1,3,full,8,PENDING_RUN

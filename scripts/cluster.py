@@ -55,28 +55,22 @@ def cmd_build(args: argparse.Namespace) -> int:
         return proc.returncode
 
 
-def _container_ip(name: str) -> str:
-    proc = run_podman(
-        ["inspect", name, "--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"]
-    )
-    return proc.stdout.strip()
-
-
-def _patch_hosts(names: list[str]) -> None:
-    """Resolve dfs-* names via /etc/hosts: aardvark-dns is unavailable in this VM."""
-    entries = "\n".join(f"{_container_ip(n)} {n}" for n in names)
-    script = "sed -i '/dfs-/d' /etc/hosts; " + "; ".join(
-        f"echo '{line}' >> /etc/hosts" for line in entries.splitlines()
-    )
-    for name in names:
-        run_podman(["exec", name, "sh", "-c", script])
-
-
 def cmd_up(args: argparse.Namespace) -> int:
     nodes = args.nodes
     logger.info("CLUSTER_UP nodes=%d", nodes)
-    # 1. Network
-    run_podman(["network", "create", "dfsnet"], check=False)
+    # 1. Network: static IPs survive container restarts, DNS is disabled (aardvark-dns
+    # cannot start in this VM) so names come from /etc/hosts via _patch_hosts.
+    run_podman(
+        ["network", "create", "--disable-dns", "--subnet", "10.90.0.0/24", "dfsnet"],
+        check=False,
+    )
+    master_ip = "10.90.0.13"
+    dn_ip = {i: f"10.90.0.{13 + i}" for i in range(1, nodes + 1)}
+    client_ip = f"10.90.0.{14 + nodes}"
+    # Static --add-host entries survive stop/start; podman rewrites /etc/hosts on start.
+    all_names = ["dfs-master"] + [f"dfs-dn{i}" for i in range(1, nodes + 1)] + ["dfs-client"]
+    all_ips = [master_ip] + [dn_ip[i] for i in range(1, nodes + 1)] + [client_ip]
+    hosts = [arg for n, ip in zip(all_names, all_ips) for arg in ("--add-host", f"{n}:{ip}")]
 
     # 2. Volumes
     run_podman(["volume", "create", "master_meta"], check=False)
@@ -91,7 +85,9 @@ def cmd_up(args: argparse.Namespace) -> int:
         "--name", "dfs-master",
         "--hostname", "dfs-master",
         "--cgroups", "disabled",
-        "--network", "podman",
+        "--network", "dfsnet",
+        "--ip", master_ip,
+        *hosts,
         "-e", "LOG_LEVEL=INFO",
         "-e", "RF=2",
         "-e", "CHUNK_SIZE_MB=8",
@@ -115,7 +111,9 @@ def cmd_up(args: argparse.Namespace) -> int:
             "--name", dn_name,
             "--hostname", dn_name,
             "--cgroups", "disabled",
-            "--network", "podman",
+            "--network", "dfsnet",
+            "--ip", dn_ip[i],
+            *hosts,
             "-e", "LOG_LEVEL=INFO",
             "-e", "MASTER_ADDR=dfs-master:50051",
             "-e", "DN_PORT=50052",
@@ -137,7 +135,9 @@ def cmd_up(args: argparse.Namespace) -> int:
         "run", "-d",
         "--name", "dfs-client",
         "--cgroups", "disabled",
-        "--network", "podman",
+        "--network", "dfsnet",
+        "--ip", client_ip,
+        *hosts,
         "-e", "MASTER_ADDR=dfs-master:50051",
         "-e", f"CLIENT_WORKERS={args.client_workers}",
         "-e", "WORK_DIR=/work",
@@ -148,7 +148,6 @@ def cmd_up(args: argparse.Namespace) -> int:
     ])
 
     logger.info("CLUSTER_UP_DONE nodes=%d", nodes)
-    _patch_hosts(["dfs-master"] + [f"dfs-dn{i}" for i in range(1, nodes + 1)] + ["dfs-client"])
     return 0
 
 

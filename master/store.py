@@ -56,12 +56,13 @@ class MasterStore:
                 size=size,
                 chunk_size=chunk_size,
                 file_checksum=file_checksum,
+                chunk_ids=[],
                 status=status,
                 created_at=created_at,
             )
         chunks: dict[str, ChunkMeta] = {}
         for row in self.db.execute(
-            "SELECT chunk_id, file_name, idx, size, checksum, state FROM chunks"
+            "SELECT chunk_id, file_name, idx, size, checksum, state FROM chunks ORDER BY idx ASC"
         ):
             chunk_id, file_name, idx, size, checksum, state = row
             chunks[chunk_id] = ChunkMeta(
@@ -72,6 +73,8 @@ class MasterStore:
                 checksum=checksum,
                 state=state,
             )
+            if file_name in files:
+                files[file_name].chunk_ids.append(chunk_id)
         replicas: dict[str, set[str]] = {}
         for chunk_id, node_id in self.db.execute(
             "SELECT chunk_id, node_id FROM replicas"

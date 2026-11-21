@@ -390,6 +390,8 @@ def serve() -> None:
     state.files = files
     state.chunks = chunks
     for cid, nids in replicas.items():
+        if cid in state.chunks:
+            state.chunks[cid].replicas = set(nids)
         for nid in nids:
             state.node_chunks.setdefault(nid, set()).add(cid)
     master_service = MasterServiceImpl(state, store)

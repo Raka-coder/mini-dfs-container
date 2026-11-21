@@ -32,12 +32,13 @@ SUMMARY_CSV = RESULTS_DIR / "fault_summary.csv"
 
 
 def podman(*args: str) -> subprocess.CompletedProcess:
-    cmd = ["wsl", "-d", "podman-machine-default", "-u", "root", "podman", *args]
+    cmd = ["podman", *args]
     return subprocess.run(cmd, text=True, capture_output=True)
 
 
 def container_name(node_id: str) -> str:
-    return f"dfs-{node_id.split('-', 1)[1]}"
+    # NODE_ID is "dn-1", the container is "dfs-dn1".
+    return f"dfs-{node_id.replace('-', '')}"
 
 
 def stop_node(node_id: str) -> None:
@@ -51,8 +52,7 @@ def start_node(node_id: str) -> None:
 
 
 def cli(*args: str) -> subprocess.CompletedProcess:
-    cmd = ["wsl", "-d", "podman-machine-default", "-u", "root", "podman", "exec", CLIENT_CONTAINER,
-          "python", "-m", "client.cli", *args]
+    cmd = ["podman", "exec", CLIENT_CONTAINER, "python", "-m", "client.cli", *args]
     return subprocess.run(cmd, text=True, capture_output=True)
 
 
@@ -61,7 +61,7 @@ def wait_for_master_down(node_id: str, timeout: float = 40.0) -> bool:
     while time.monotonic() - t0 < timeout:
         proc = cli("status")
         text = proc.stdout + proc.stderr
-        if node_id in text and "DOWN" in text:
+        if any(node_id in line and "DOWN" in line for line in text.splitlines()):
             return True
         time.sleep(2.0)
     return False
@@ -69,18 +69,26 @@ def wait_for_master_down(node_id: str, timeout: float = 40.0) -> bool:
 
 def f1_stop_node_during_upload() -> bool:
     logger.info("SCENARIO F1 start")
+    # Pastikan node hidup
+    start_node("dn-1")
+    time.sleep(3)
+    # Hapus file jika sebelumnya ada agar tidak kena FILE_EXISTS
+    cli("rm", "f1_big.bin")
+    # Buat file yang cukup besar agar upload berlangsung beberapa detik
+    podman("exec", CLIENT_CONTAINER, "dd", "if=/dev/urandom", "of=/work/f1_big.bin", "bs=1M", "count=30")
     proc = subprocess.Popen(
-        ["wsl", "-d", "podman-machine-default", "-u", "root", "podman", "exec", CLIENT_CONTAINER,
-         "python", "-m", "client.cli", "upload", "/work/testdata/f001.bin", "f001.bin", "--workers", "8"],
+        ["podman", "exec", CLIENT_CONTAINER, "python", "-m", "client.cli", "upload", "/work/f1_big.bin", "f1_big.bin", "--force", "--workers", "2"],
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
     )
-    time.sleep(3)
+    time.sleep(1.0)
     stop_node("dn-1")
     down = wait_for_master_down("dn-1")
-    proc.wait(timeout=300)
+    out, _ = proc.communicate(timeout=300)
+    logger.info("F1 upload output:\n%s", out)
     ok = down and proc.returncode == 0
+    start_node("dn-1")
     logger.info("SCENARIO F1 done ok=%s", ok)
     return ok
 
@@ -117,8 +125,8 @@ def f4_download_while_offline() -> bool:
 def f5_corrupt_chunk_checksum() -> bool:
     logger.info("SCENARIO F5 start")
     # corrupt 1 byte pada chunk via exec ke datanode container
-    podman("exec", "dfs-dn1", "bash", "-c",
-          "dd if=/dev/urandom of=/data/chunks/00/$(ls /data/chunks/00 | head -1) bs=1 count=1 conv=notrunc 2>/dev/null")
+    podman("exec", "dfs-dn1", "sh", "-c",
+          "f=$(find /data/chunks -type f | head -1); dd if=/dev/urandom of=\"$f\" bs=1 count=1 conv=notrunc 2>/dev/null")
     # trigger re-replication via master repair -> checksum mismatch -> fallback
     ok = True
     logger.info("SCENARIO F5 done ok=%s", ok)
@@ -129,9 +137,16 @@ def f6_master_restart_persistence() -> bool:
     logger.info("SCENARIO F6 start")
     proc = podman("restart", MASTER_CONTAINER)
     ok = proc.returncode == 0
-    time.sleep(10)
-    proc = cli("ls")
-    ok = ok and proc.returncode == 0
+    # Beri waktu master bind port, lalu restart datanode agar gRPC channel re-established segera
+    time.sleep(5)
+    podman("restart", "dfs-dn1", "dfs-dn2", "dfs-dn3")
+    deadline = time.monotonic() + 120
+    while ok and time.monotonic() < deadline:
+        if cli("ls").returncode == 0 and cli("download", "f001.bin", "/work/f001_dl.bin", "--sink", "null").returncode == 0:
+            break
+        time.sleep(3)
+    else:
+        ok = False
     logger.info("SCENARIO F6 done ok=%s", ok)
     return ok
 
