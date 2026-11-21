@@ -180,8 +180,8 @@ class MasterServiceImpl(dfs_pb2_grpc.MasterServiceServicer):
 
             chunks: list[dict] = []
             chunk_plans: list[dfs_pb2.ChunkPlan] = []
-            holders: set[str] = set()
             for idx, (start, size) in enumerate(bounds):
+                holders: set[str] = set()
                 chunk_id = f"{upload_id}_c{idx:04d}"
                 targets = pick_targets(
                     list(self.state.nodes.values()),

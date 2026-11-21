@@ -68,8 +68,15 @@ class ReplicationManager:
                 task_id = f"repl:{cid}"
                 if task_id in self._in_flight:
                     continue
+                alive_holders = [
+                    n
+                    for n in cm.replicas
+                    if n in self.state.nodes and self.state.nodes[n].state == "ALIVE"
+                ]
+                if not alive_holders:
+                    continue
                 source_id = min(
-                    (n.node_id for n in self.state.nodes.values() if n.state == "ALIVE"),
+                    alive_holders,
                     key=lambda n: self.state.nodes[n].used_bytes,
                 )
                 source = self.state.nodes.get(source_id)

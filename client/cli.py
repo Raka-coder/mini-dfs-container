@@ -180,6 +180,7 @@ def main() -> None:
 
     p_verify = subparsers.add_parser("verify", help="Verify file via download-to-null")
     p_verify.add_argument("remote")
+    p_verify.add_argument("--workers", type=int, default=8)
     p_verify.set_defaults(func=cmd_verify)
 
     p_gen = subparsers.add_parser("gen-data", help="Generate dataset")
