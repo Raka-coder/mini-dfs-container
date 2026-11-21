@@ -15,4 +15,5 @@ COPY common ./common
 COPY master ./master
 COPY datanode ./datanode
 COPY client ./client
+COPY scripts ./scripts
 CMD ["python", "-c", "import sys; sys.exit('specify a command')"]

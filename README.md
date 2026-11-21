@@ -83,7 +83,7 @@ graph TD
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/username/dfs-x.git
+git clone https://github.com/Raka-coder/mini-dfs-container.git
 cd dfs-x
 ```
 
@@ -167,10 +167,10 @@ podman exec dfs-client python -m client.cli gen-data --profile full --batch 20
 
 ```bash
 # Upload berkas tunggal
-podman exec dfs-client python -m client.cli upload /work/testdata/file_000.bin file_000.bin
+podman exec dfs-client python -m client.cli upload /work/testdata/f001.bin f001.bin
 
 # Download berkas kembali
-podman exec dfs-client python -m client.cli download file_000.bin /work/out_000.bin
+podman exec dfs-client python -m client.cli download f001.bin /work/out_000.bin
 
 # List seluruh berkas di DFS-X
 podman exec dfs-client python -m client.cli ls
@@ -180,13 +180,13 @@ podman exec dfs-client python -m client.cli ls
 
 ```bash
 # Tampilkan detail alokasi chunk dan letak replika anti-affinity
-podman exec dfs-client python -m client.cli info file_000.bin
+podman exec dfs-client python -m client.cli info f001.bin
 
 # Verifikasi integritas checksum SHA-256 berkas
-podman exec dfs-client python -m client.cli verify file_000.bin
+podman exec dfs-client python -m client.cli verify f001.bin
 
 # Hapus berkas
-podman exec dfs-client python -m client.cli rm file_000.bin
+podman exec dfs-client python -m client.cli rm f001.bin
 ```
 
 ---

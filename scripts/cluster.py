@@ -34,7 +34,7 @@ def cmd_build(args: argparse.Namespace) -> int:
 
     tar_buf = io.BytesIO()
     with tarfile.open(fileobj=tar_buf, mode="w") as tar:
-        for folder in ["proto", "common", "master", "datanode", "client"]:
+        for folder in ["proto", "common", "master", "datanode", "client", "scripts"]:
             p = Path(folder)
             if p.exists():
                 for f in p.rglob("*"):
