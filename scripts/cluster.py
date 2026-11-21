@@ -20,7 +20,9 @@ logger = logging.getLogger("dfs.cluster")
 
 
 def run_podman(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
-    cmd = ["wsl", "-d", "podman-machine-default", "-u", "root", "podman"] + args
+    # Windows remote client: containers created through it are the only ones
+    # whose conmon state is reachable for `podman exec` (local WSL ones are not).
+    cmd = ["podman"] + args
     return subprocess.run(cmd, check=check, text=True, capture_output=True)
 
 
@@ -43,7 +45,7 @@ def cmd_build(args: argparse.Namespace) -> int:
                 tar.add(top_f, arcname=top_f)
 
     tar_bytes = tar_buf.getvalue()
-    cmd = ["wsl", "-d", "podman-machine-default", "-u", "root", "podman", "build", "-t", "localhost/dfsx:latest", "-"]
+    cmd = ["wsl", "-d", "podman-machine-default", "-u", "root", "podman", "build", "--isolation=chroot", "-t", "localhost/dfsx:latest", "-"]
     proc = subprocess.run(cmd, input=tar_bytes, text=False, capture_output=True)
     if proc.returncode == 0:
         logger.info("BUILD_SUCCESS image=localhost/dfsx:latest")
@@ -51,6 +53,23 @@ def cmd_build(args: argparse.Namespace) -> int:
     else:
         logger.error("BUILD_FAILED err=%s", proc.stderr.decode(errors="replace"))
         return proc.returncode
+
+
+def _container_ip(name: str) -> str:
+    proc = run_podman(
+        ["inspect", name, "--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"]
+    )
+    return proc.stdout.strip()
+
+
+def _patch_hosts(names: list[str]) -> None:
+    """Resolve dfs-* names via /etc/hosts: aardvark-dns is unavailable in this VM."""
+    entries = "\n".join(f"{_container_ip(n)} {n}" for n in names)
+    script = "sed -i '/dfs-/d' /etc/hosts; " + "; ".join(
+        f"echo '{line}' >> /etc/hosts" for line in entries.splitlines()
+    )
+    for name in names:
+        run_podman(["exec", name, "sh", "-c", script])
 
 
 def cmd_up(args: argparse.Namespace) -> int:
@@ -70,10 +89,9 @@ def cmd_up(args: argparse.Namespace) -> int:
     run_podman([
         "run", "-d",
         "--name", "dfs-master",
-        "--network", "dfsnet",
-        "--memory", "256m",
-        "--cpus", "0.5",
-        "-p", "50051:50051",
+        "--hostname", "dfs-master",
+        "--cgroups", "disabled",
+        "--network", "podman",
         "-e", "LOG_LEVEL=INFO",
         "-e", "RF=2",
         "-e", "CHUNK_SIZE_MB=8",
@@ -95,9 +113,9 @@ def cmd_up(args: argparse.Namespace) -> int:
         run_podman([
             "run", "-d",
             "--name", dn_name,
-            "--network", "dfsnet",
-            "--memory", args.dn_mem,
-            "--cpus", str(args.dn_cpus),
+            "--hostname", dn_name,
+            "--cgroups", "disabled",
+            "--network", "podman",
             "-e", "LOG_LEVEL=INFO",
             "-e", "MASTER_ADDR=dfs-master:50051",
             "-e", "DN_PORT=50052",
@@ -118,9 +136,8 @@ def cmd_up(args: argparse.Namespace) -> int:
     run_podman([
         "run", "-d",
         "--name", "dfs-client",
-        "--network", "dfsnet",
-        "--memory", "512m",
-        "--cpus", "1.0",
+        "--cgroups", "disabled",
+        "--network", "podman",
         "-e", "MASTER_ADDR=dfs-master:50051",
         "-e", f"CLIENT_WORKERS={args.client_workers}",
         "-e", "WORK_DIR=/work",
@@ -131,6 +148,7 @@ def cmd_up(args: argparse.Namespace) -> int:
     ])
 
     logger.info("CLUSTER_UP_DONE nodes=%d", nodes)
+    _patch_hosts(["dfs-master"] + [f"dfs-dn{i}" for i in range(1, nodes + 1)] + ["dfs-client"])
     return 0
 
 
