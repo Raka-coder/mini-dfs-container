@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-"""Generate benchmark analysis plots for DFS-X (9 figures, 150 DPI -> results/plots/)."""
 from __future__ import annotations
 
 import csv
@@ -23,46 +21,98 @@ def _save(fig, name: str) -> Path:
     return path
 
 
-def plot_speedup_vs_workers() -> Path:
-    # Tier 1 data: speedup vs worker thread (W in {1,2,4,8})
+def _read_csv(name: str) -> list[dict]:
+    path = RESULTS / name
+    if not path.exists():
+        return []
+    with path.open(newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def plot_speedup_vs_workers() -> Path | None:
+    rows = [r for r in _read_csv("bench_runs.csv") if r.get("tier") == "1"]
+    if not rows:
+        print("SKIPPED: no tier-1 data")
+        return None
+    rows.sort(key=lambda r: int(r["workers"]))
+    base_up = float(rows[0]["upload_throughput_mibs"])
+    base_down = float(rows[0]["download_throughput_mibs"])
+    workers = [int(r["workers"]) for r in rows]
+    speedup_up = [float(r["upload_throughput_mibs"]) / base_up for r in rows]
+    speedup_down = [float(r["download_throughput_mibs"]) / base_down for r in rows]
+
     fig, ax = plt.subplots()
-    ax.plot([1, 2, 4, 8], [1.0, 2.0, 4.0, 8.0], marker="o")
+    ax.plot(workers, speedup_up, marker="o", label="upload")
+    ax.plot(workers, speedup_down, marker="o", label="download")
+    ax.plot(workers, workers, linestyle="--", color="gray", label="ideal (y=W)")
     ax.set_title("Speedup vs Workers")
     ax.set_xlabel("Workers")
     ax.set_ylabel("Speedup")
+    ax.legend()
     return _save(fig, "speedup_vs_workers")
 
 
-def plot_efficiency_vs_workers() -> Path:
+def plot_efficiency_vs_workers() -> Path | None:
+    rows = [r for r in _read_csv("bench_runs.csv") if r.get("tier") == "1"]
+    if not rows:
+        print("SKIPPED: no tier-1 data")
+        return None
+    rows.sort(key=lambda r: int(r["workers"]))
+    base_up = float(rows[0]["upload_throughput_mibs"])
+    base_down = float(rows[0]["download_throughput_mibs"])
+    workers = [int(r["workers"]) for r in rows]
+    eff_up = [ (float(r["upload_throughput_mibs"]) / base_up) / int(r["workers"]) for r in rows]
+    eff_down = [ (float(r["download_throughput_mibs"]) / base_down) / int(r["workers"]) for r in rows]
+
     fig, ax = plt.subplots()
-    ax.plot([1, 2, 4, 8], [1.0, 1.0, 1.0, 1.0], marker="o")
+    ax.plot(workers, eff_up, marker="o", label="upload")
+    ax.plot(workers, eff_down, marker="o", label="download")
+    ax.axhline(1.0, linestyle="--", color="gray", label="ideal (y=1.0)")
     ax.set_title("Efficiency vs Workers")
     ax.set_xlabel("Workers")
     ax.set_ylabel("Efficiency")
+    ax.legend()
     return _save(fig, "efficiency_vs_workers")
 
 
-def plot_throughput_vs_nodes() -> Path:
-    # Tier 2 data: throughput vs node count (lite profile, W=4)
+def plot_throughput_vs_nodes() -> Path | None:
+    rows = [r for r in _read_csv("bench_runs.csv") if r.get("tier") == "2"]
+    if not rows:
+        print("SKIPPED: no tier-2 data")
+        return None
+    rows.sort(key=lambda r: int(r["nodes"]))
+    nodes = [int(r["nodes"]) for r in rows]
+    thr = [float(r["upload_throughput_mibs"]) for r in rows]
     fig, ax = plt.subplots()
-    ax.plot([2, 3, 4, 8, 16], [10, 20, 30, 40, 50], marker="o")
+    ax.plot(nodes, thr, marker="o")
     ax.set_title("Throughput vs Nodes")
     ax.set_xlabel("Nodes")
-    ax.set_ylabel("Throughput (MB/s)")
+    ax.set_ylabel("Throughput (MiB/s)")
     return _save(fig, "throughput_vs_nodes")
 
 
-def plot_scalability_nodes() -> Path:
+def plot_scalability_nodes() -> Path | None:
+    rows = [r for r in _read_csv("bench_runs.csv") if r.get("tier") == "2"]
+    if not rows:
+        print("SKIPPED: no tier-2 data")
+        return None
+    rows.sort(key=lambda r: int(r["nodes"]))
+    nodes = [int(r["nodes"]) for r in rows]
+    dur = [float(r["upload_duration_s"]) for r in rows]
     fig, ax = plt.subplots()
-    ax.plot([2, 3, 4, 8, 16], [1, 2, 4, 8, 16], marker="o")
+    ax.plot(nodes, dur, marker="o")
     ax.set_title("Scalability (nodes vs duration)")
     ax.set_xlabel("Nodes")
     ax.set_ylabel("Duration (s)")
     return _save(fig, "scalability_nodes")
 
 
-def plot_latency_per_op() -> Path:
-    data = json.loads((RESULTS / "latency_run1.json").read_text(encoding="utf-8"))
+def plot_latency_per_op() -> Path | None:
+    path = RESULTS / "latency_run1.json"
+    if not path.exists():
+        print("SKIPPED: no latency data")
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
     ops = sorted(data.keys())
     fig, ax = plt.subplots()
     ax.bar(ops, [data[o]["avg"] for o in ops])
@@ -71,56 +121,36 @@ def plot_latency_per_op() -> Path:
     return _save(fig, "latency_per_op")
 
 
-def plot_tasks_per_sec() -> Path:
+def plot_recovery_timeline() -> Path | None:
+    rows = _read_csv("fault_summary.csv")
+    if not rows:
+        print("SKIPPED: no fault data")
+        return None
+    scenarios = [r["scenario"] for r in rows]
+    durations = [float(r["duration_s"]) for r in rows]
     fig, ax = plt.subplots()
-    ax.plot([1, 2, 4, 8], [10, 20, 40, 80], marker="o")
-    ax.set_title("Tasks per Sec")
-    ax.set_xlabel("Workers")
-    ax.set_ylabel("Tasks/s")
-    return _save(fig, "tasks_per_sec")
-
-
-def plot_recovery_timeline() -> Path:
-    fig, ax = plt.subplots()
-    ax.plot([0, 1, 2, 3, 4], [0, 5, 10, 15, 20], marker="o")
+    ax.bar(scenarios, durations)
     ax.set_title("Recovery Timeline")
     ax.set_ylabel("Seconds")
     return _save(fig, "recovery_timeline")
 
 
-def plot_storage_per_node() -> Path:
-    fig, ax = plt.subplots()
-    ax.bar(["dn-1", "dn-2", "dn-3"], [10, 20, 30])
-    ax.set_title("Storage per Node")
-    ax.set_ylabel("MB")
-    return _save(fig, "storage_per_node")
-
-
-def plot_access_time() -> Path:
-    data = json.loads((RESULTS / "latency_run1.json").read_text(encoding="utf-8"))
-    ops = sorted(data.keys())
-    fig, ax = plt.subplots()
-    ax.bar(ops, [data[o]["avg"] for o in ops])
-    ax.set_title("Access Time per Op")
-    ax.set_ylabel("Seconds")
-    return _save(fig, "access_time")
-
-
 def main() -> int:
-    plots = [
+    PLOTS.mkdir(parents=True, exist_ok=True)
+    generated = []
+    for fn in (
         plot_speedup_vs_workers,
         plot_efficiency_vs_workers,
         plot_throughput_vs_nodes,
         plot_scalability_nodes,
         plot_latency_per_op,
-        plot_tasks_per_sec,
         plot_recovery_timeline,
-        plot_storage_per_node,
-        plot_access_time,
-    ]
-    paths = [fn() for fn in plots]
-    for p in paths:
-        print(p)
+    ):
+        p = fn()
+        if p is not None:
+            generated.append(p)
+            print(p)
+    print(f"Generated {len(generated)} plots")
     return 0
 
 
