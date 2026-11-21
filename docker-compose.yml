@@ -1,0 +1,80 @@
+x-dn: &dn
+  image: localhost/dfsx:latest
+  networks: [dfsnet]
+  restart: on-failure
+  mem_limit: 192m
+  cpus: 0.5
+  command: ["python", "-m", "datanode.server"]
+  environment: &dn_env
+    LOG_LEVEL: INFO
+    MASTER_ADDR: master:50051
+    DN_PORT: "50052"
+    METRICS_PORT: "8000"
+    SPARSE_WRITE: "0"
+    FSYNC: "0"
+    MIN_FREE_MB: "512"
+    GRPC_WORKERS: "8"
+
+services:
+  master:
+    image: localhost/dfsx:latest
+    container_name: dfs-master
+    command: ["python", "-m", "master.server"]
+    networks: [dfsnet]
+    restart: on-failure
+    mem_limit: 256m
+    cpus: 0.5
+    ports: ["50051:50051"]
+    environment:
+      LOG_LEVEL: INFO
+      RF: "2"
+      CHUNK_SIZE_MB: "8"
+      HEARTBEAT_TIMEOUT_S: "10"
+      SCAN_INTERVAL_S: "2"
+      REPLICATION_CONCURRENCY: "2"
+      DB_PATH: /meta/master.db
+      METRICS_PORT: "8000"
+      GRPC_WORKERS: "16"
+    volumes: ["master_meta:/meta"]
+
+  datanode1:
+    <<: *dn
+    container_name: dfs-dn1
+    environment: {<<: *dn_env, NODE_ID: dn-1, NODE_ADDR: "datanode1:50052"}
+    volumes: ["dn1_data:/data"]
+
+  datanode2:
+    <<: *dn
+    container_name: dfs-dn2
+    environment: {<<: *dn_env, NODE_ID: dn-2, NODE_ADDR: "datanode2:50052"}
+    volumes: ["dn2_data:/data"]
+
+  datanode3:
+    <<: *dn
+    container_name: dfs-dn3
+    environment: {<<: *dn_env, NODE_ID: dn-3, NODE_ADDR: "datanode3:50052"}
+    volumes: ["dn3_data:/data"]
+
+  client:
+    image: localhost/dfsx:latest
+    container_name: dfs-client
+    command: ["sleep", "infinity"]
+    networks: [dfsnet]
+    mem_limit: 512m
+    cpus: 1.0
+    environment:
+      MASTER_ADDR: "master:50051"
+      CLIENT_WORKERS: "8"
+      WORK_DIR: "/work"
+      LOG_LEVEL: INFO
+    volumes: ["client_work:/work", "./results:/results"]
+
+networks:
+  dfsnet: {}
+
+volumes:
+  master_meta: {}
+  dn1_data: {}
+  dn2_data: {}
+  dn3_data: {}
+  client_work: {}

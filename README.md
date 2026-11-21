@@ -1,0 +1,297 @@
+# DFS-X Terminal — Mini Distributed File System
+
+> **Tema 5:** Cloud-based Distributed File Storage (DFS-X)  
+> **Mata Kuliah:** Komputasi Paralel dan Terdistribusi (3 SKS) — UAS Ganjil 2026/2027  
+> **Stack:** Python 3.12 (Pure) · gRPC Streaming · Podman/WSL2 · SQLite WAL · Prometheus & Grafana
+
+DFS-X Terminal adalah implementasi sistem berkas terdistribusi mini berbasis CLI, gRPC streaming, dan arsitektur container. Proyek ini mendemonstrasikan koordinasi master-worker, replikasi data dengan anti-affinity ($RF=2$), verifikasi integritas data berbasis SHA-256 bertingkat, pemulihan mandiri saat kegagalan (*fault recovery*), pengujian skalabilitas (2 hingga 16 node), serta visualisasi metrik performa sesuai standar evaluasi ilmiah.
+
+---
+
+## 📋 Daftar Isi
+
+1. [Fitur Utama & Arsitektur](#-fitur-utama--arsitektur)
+2. [Topologi Cluster](#-topologi-cluster)
+3. [Prasyarat Sistem](#-prasyarat-sistem)
+4. [Panduan Mulai Cepat (Quickstart)](#-panduan-mulai-cepat-quickstart)
+   - [Clone Repository](#1-clone-repository)
+   - [Persiapan Lingkungan Virtual & Dependensi](#2-persiapan-lingkungan-virtual--dependensi)
+   - [Kompilasi Protobuf gRPC](#3-kompilasi-protobuf-grpc)
+   - [Build Container Image](#4-build-container-image)
+5. [Menjalankan Cluster DFS-X](#-menjalankan-cluster-dfs-x)
+   - [Menjalankan Cluster Default (1 Master + 3 DataNodes + 1 Client)](#menjalankan-cluster-default-1-master--3-datanodes--1-client)
+   - [Memeriksa Status & Kesiapan Cluster](#memeriksa-status--kesiapan-cluster)
+6. [Operasi CLI (Upload, Download, Verifikasi)](#-operasi-cli-upload-download-verifikasi)
+   - [Generate Dataset Pengujian](#generate-dataset-pengujian)
+   - [Upload & Download Berkas](#upload--download-berkas)
+   - [Pemeriksaan Metadata & Verifikasi Integritas](#pemeriksaan-metadata--verifikasi-integritas)
+7. [Pengujian Toleransi Kegagalan (Fault Tolerance F1–F6)](#-pengujian-toleransi-kegagalan-fault-tolerance-f1f6)
+8. [Benchmarking & Skalabilitas (2 hingga 16 Node)](#-benchmarking--skalabilitas-2-hingga-16-node)
+   - [Eksekusi Matriks Benchmark](#eksekusi-matriks-benchmark)
+   - [Generasi 9 Grafik Analisis Ilmiah](#generasi-9-grafik-analisis-ilmiah)
+9. [Monitoring Stack (Prometheus & Grafana)](#-monitoring-stack-prometheus--grafana)
+10. [Pemeliharaan & Pembersihan Resource Disk](#-pemeliharaan--pembersihan-resource-disk)
+11. [Kepatuhan & Aturan Teknis (Rules of Engagement)](#-kepatuhan--aturan-teknis-rules-of-engagement)
+
+---
+
+## 🚀 Fitur Utama & Arsitektur
+
+- **Master Coordinator:** Mengelola alokasi chunk, deteksi kegagalan node via heartbeat monolitik (`time.monotonic()`), pemulihan replika otomatis berbasis antrean (`queue.Queue`), dan metadata ACID menggunakan SQLite WAL.
+- **Worker (DataNode):** Menyimpan chunk sebesar 8 MiB dengan penulisan atomik (`.tmp` + `os.replace`), penolakan alokasi otomatis jika disk rendah (`MIN_FREE_MB`), streaming chunk antar-node (*peer replication*), dan pelaporan berkala (*block report*).
+- **Client CLI:** Pengunggahan dan pengunduhan multi-worker konkuren menggunakan gRPC streaming 1 MiB frame, verifikasi checksum bertingkat (SHA-256 per chunk dan per berkas), serta failover unduhan dinamis jika primer offline atau terjadi *checksum mismatch*.
+- **Parameter Evaluasi Lengkap:** Mengukur dan memvisualisasikan 6 metrik wajib: Speedup Ratio ($S$), Efficiency ($E$), Throughput (MiB/s & task/detik), Latency (avg, p50, p95, p99), Fault Recovery, dan Skalabilitas (2, 3, 4, 8, 16 node).
+
+---
+
+## 🏗 Topologi Cluster
+
+```mermaid
+graph TD
+    Client["Client CLI (dfs-client)"]
+    Master["Master Coordinator (dfs-master:50051)<br/>SQLite WAL + Failure Detector + Replication Queue"]
+    DN1["DataNode 1 (dfs-dn1:50052)<br/>Named Volume: dn1_data"]
+    DN2["DataNode 2 (dfs-dn2:50052)<br/>Named Volume: dn2_data"]
+    DN3["DataNode 3 (dfs-dn3:50052)<br/>Named Volume: dn3_data"]
+    Prometheus["Prometheus (:9090)"]
+    Grafana["Grafana (:3000)"]
+
+    Client -->|"1. AllocateChunks / CommitFile"| Master
+    Client -->|"2. Stream Chunks (Frame 1 MiB)"| DN1
+    Client -->|"2. Stream Chunks (Frame 1 MiB)"| DN2
+    DN1 -.->|"Heartbeat (2s) / Block Report"| Master
+    DN2 -.->|"Heartbeat (2s) / Block Report"| Master
+    DN3 -.->|"Heartbeat (2s) / Block Report"| Master
+    DN1 -.->|"ReplicateChunk (Peer)"| DN3
+    Prometheus -.->|"Scrape (:8000)"| Master
+    Prometheus -.->|"Scrape (:8000)"| DN1
+    Grafana --> Prometheus
+```
+
+---
+
+## 💻 Prasyarat Sistem
+
+- **OS:** Windows 10/11 (dengan WSL2 aktif) atau Linux.
+- **Container Engine:** [Podman](https://podman.io/) (v4.x/5.x/6.x) dengan `podman-compose`.
+- **Python:** Python 3.12+ (disarankan) pada host untuk skrip visualisasi dan orchestrator benchmark.
+
+---
+
+## ⚡ Panduan Mulai Cepat (Quickstart)
+
+### 1. Clone Repository
+
+```bash
+git clone https://github.com/username/dfs-x.git
+cd dfs-x
+```
+
+### 2. Persiapan Lingkungan Virtual & Dependensi
+
+Siapkan environment Python pada mesin host untuk menjalankan skrip pengujian, benchmark, dan visualisasi:
+
+```bash
+# Windows (PowerShell)
+python -m venv .venv
+.venv\Scripts\activate
+
+# Linux / WSL2 (Bash)
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Install dependensi
+pip install -r requirements.txt -r requirements-build.txt
+pip install podman-compose matplotlib pandas ruff pytest
+```
+
+### 3. Kompilasi Protobuf gRPC
+
+Generate stubs gRPC Python dari berkas definisi protokol:
+
+```bash
+python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. proto/dfs.proto
+```
+
+### 4. Build Container Image
+
+Bangun satu image terpadu `localhost/dfsx:latest` untuk seluruh layanan (Master, DataNode, Client):
+
+```bash
+podman build -t localhost/dfsx:latest .
+```
+*(Alternatif menggunakan helper Python: `python scripts/cluster.py build`)*
+
+---
+
+## 🐳 Menjalankan Cluster DFS-X
+
+### Menjalankan Cluster Default (1 Master + 3 DataNodes + 1 Client)
+
+Jalankan container cluster menggunakan Podman Compose:
+
+```bash
+podman-compose -p dfsx up -d
+```
+*(Atau menggunakan helper cross-platform: `python scripts/cluster.py up --nodes 3`)*
+
+### Memeriksa Status & Kesiapan Cluster
+
+Pastikan seluruh node telah terhubung dan berstatus `ALIVE`:
+
+```bash
+# Tunggu hingga master mendeteksi minimal 3 node aktif
+podman exec dfs-client python -m client.cli wait-ready --min-nodes 3 --timeout 60
+
+# Cek tabel status cluster
+podman exec dfs-client python -m client.cli status
+```
+
+---
+
+## 📦 Operasi CLI (Upload, Download, Verifikasi)
+
+Semua operasi klien dieksekusi secara terisolasi di dalam container `dfs-client`:
+
+### Generate Dataset Pengujian
+
+```bash
+# Profil lite (10 berkas x 5 MB sparse) untuk verifikasi cepat
+podman exec dfs-client python -m client.cli gen-data --profile lite
+
+# Profil full (100 berkas x 50 MB data acak nyata / os.urandom untuk benchmark final)
+podman exec dfs-client python -m client.cli gen-data --profile full --batch 20
+```
+
+### Upload & Download Berkas
+
+```bash
+# Upload berkas tunggal
+podman exec dfs-client python -m client.cli upload /work/testdata/file_000.bin file_000.bin
+
+# Download berkas kembali
+podman exec dfs-client python -m client.cli download file_000.bin /work/out_000.bin
+
+# List seluruh berkas di DFS-X
+podman exec dfs-client python -m client.cli ls
+```
+
+### Pemeriksaan Metadata & Verifikasi Integritas
+
+```bash
+# Tampilkan detail alokasi chunk dan letak replika anti-affinity
+podman exec dfs-client python -m client.cli info file_000.bin
+
+# Verifikasi integritas checksum SHA-256 berkas
+podman exec dfs-client python -m client.cli verify file_000.bin
+
+# Hapus berkas
+podman exec dfs-client python -m client.cli rm file_000.bin
+```
+
+---
+
+## 🛡 Pengujian Toleransi Kegagalan (Fault Tolerance F1–F6)
+
+Pengujian skenario fault recovery otomatis dijalankan melalui modul [scripts/fault_test.py](file:///C:/dfs-x/scripts/fault_test.py):
+
+| Skenario | Deskripsi Pengujian |
+|---|---|
+| **F1** | Node dimatikan saat upload sedang berlangsung $\rightarrow$ failover on-the-fly (`ReallocateChunk`). |
+| **F2** | Node mati $\rightarrow$ auto re-replication $\rightarrow$ node lain mati $\rightarrow$ file tetap utuh dan dapat diunduh. |
+| **F3** | Node kembali menyala $\rightarrow$ pengiriman *full block report* & pembersihan replika berlebih (*trimming*). |
+| **F4** | Unduh file saat salah satu node penyimpanan berstatus `DOWN` $\rightarrow$ failover ke replika sekunder. |
+| **F5** | Modifikasi 1 byte chunk di disk secara sengaja $\rightarrow$ deteksi `CHECKSUM_MISMATCH` & fallback. |
+| **F6** | Restart master node saat cluster beroperasi $\rightarrow$ integritas metadata SQLite WAL tetap terjaga. |
+
+Jalankan test suite:
+```bash
+python -m scripts.fault_test --scenario f1
+# Atau jalankan otomatis seluruh skenario fault
+python -m scripts.fault_test
+```
+Rekapitulasi waktu deteksi dan perbaikan akan tersimpan di `results/fault_summary.csv`.
+
+---
+
+## 📊 Benchmarking & Skalabilitas (2 hingga 16 Node)
+
+### Eksekusi Matriks Benchmark
+
+Untuk menguji performa throughput, latensi, speedup, dan efisiensi:
+
+```bash
+# Jalankan benchmark Tier 1 (Quick verification pada cluster aktif)
+python -m scripts.bench_matrix --tier 1
+
+# Jalankan pengujian skalabilitas (2, 3, 4, 8, 16 DataNodes)
+python scripts/gen_compose.py --nodes 16 --out docker-compose.gen.yml --dn-mem 128m --dn-cpus 0.25 --dn-workers 4
+podman-compose -p dfsx -f docker-compose.gen.yml up -d
+python -m scripts.bench_matrix --tier 2
+```
+
+### Generasi 9 Grafik Analisis Ilmiah
+
+Hasilkan seluruh visualisasi siap pakai untuk paper/laporan IEEE (resolusi 150 DPI):
+
+```bash
+python scripts/plots.py
+```
+
+Grafik akan dihasilkan di direktori [results/plots/](file:///C:/dfs-x/results/plots/):
+1. `speedup_vs_workers.png` ($S = T_{seq} / T_{par}$)
+2. `efficiency_vs_workers.png` ($E = S / P$)
+3. `throughput_vs_nodes.png` (Throughput agregat MiB/s)
+4. `tasks_per_sec.png` (Throughput task per detik)
+5. `latency_per_op.png` (Distribusi rata-rata, p50, p95, p99)
+6. `scalability_nodes.png` (Skalabilitas node 2 s/d 16)
+7. `recovery_timeline.png` (Waktu deteksi failure & durasi re-replikasi)
+8. `storage_per_node.png` (Keseimbangan beban penyimpanan chunk)
+9. `access_time.png` (Perbandingan waktu akses sekuensial vs paralel)
+
+---
+
+## 📈 Monitoring Stack (Prometheus & Grafana)
+
+Proyek ini menyertakan bonus monitoring stack dengan dashboard siap pakai:
+
+```bash
+# Jalankan Prometheus & Grafana
+podman-compose -p dfsx-mon -f docker-compose.monitoring.yml up -d
+```
+
+- **Prometheus UI:** Akses di `http://localhost:9090`
+- **Grafana UI:** Akses di `http://localhost:3000` (tanpa password / anonymous viewer)
+- **Dashboard Otomatis:** Panel terisi otomatis memonitor status node ALIVE/DOWN, volume chunk per node, throughput upload/download, dan latensi RPC.
+
+---
+
+## 🧹 Pemeliharaan & Pembersihan Resource Disk
+
+Untuk menjaga headroom disk dan menghindari pembengkakan container volume:
+
+```bash
+# Matikan cluster dan hapus volume
+podman-compose -p dfsx down -v
+podman-compose -p dfsx-mon -f docker-compose.monitoring.yml down -v
+
+# Pembersihan menyeluruh sistem podman
+podman system prune -a --volumes -f
+```
+
+---
+
+## 🛡 Kepatuhan & Aturan Teknis (Rules of Engagement)
+
+- **Zero `print()`:** Seluruh logging wajib menggunakan modul standard `logging`. Validasi melalui:
+  ```bash
+  python scripts/check_no_print.py
+  ```
+- **Unit Test Sanity:**
+  ```bash
+  python -m pytest tests -v
+  ```
+- **Code Formatting & Linting:**
+  ```bash
+  ruff check . ; ruff format --check .
+  ```

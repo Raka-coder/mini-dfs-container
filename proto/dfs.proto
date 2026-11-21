@@ -1,0 +1,128 @@
+syntax = "proto3";
+package dfs;
+
+// ---------- umum ----------
+message NodeAddr { string node_id = 1; string address = 2; }
+
+// ---------- MasterService ----------
+message ChunkPlan {
+  string chunk_id = 1;
+  int32  index    = 2;
+  int64  size     = 3;
+  repeated NodeAddr targets = 4;      // RF node berbeda (anti-affinity)
+}
+message AllocateRequest {
+  string filename   = 1;
+  int64  file_size  = 2;
+  int64  chunk_size = 3;              // 0 = pakai default master
+  bool   overwrite  = 4;
+}
+message AllocateResponse {
+  bool   ok = 1; string error = 2;
+  string upload_id = 3;
+  int32  replication = 4;
+  repeated ChunkPlan chunks = 5;
+}
+message ReallocateRequest {           // ganti target bila replika gagal saat upload
+  string upload_id = 1; string chunk_id = 2;
+  repeated string exclude_nodes = 3;
+}
+message ReallocateResponse { bool ok = 1; string error = 2; ChunkPlan chunk = 3; }
+
+message ChunkResult {
+  string chunk_id = 1;
+  string checksum = 2;                // sha256 hex dihitung client
+  repeated string stored_on = 3;      // node_id yang sukses menyimpan
+}
+message CommitRequest {
+  string upload_id = 1; string filename = 2;
+  string file_checksum = 3;           // sha256 dari gabungan checksum chunk berurutan
+  repeated ChunkResult chunks = 4;
+}
+message CommitResponse { bool ok = 1; string error = 2; int32 under_replicated = 3; }
+
+message LocationsRequest { string filename = 1; }
+message ChunkLocation {
+  string chunk_id = 1; int32 index = 2; int64 size = 3; string checksum = 4;
+  repeated NodeAddr replicas = 5;     // hanya node ALIVE, urut preferensi
+}
+message LocationsResponse {
+  bool ok = 1; string error = 2;
+  int64 file_size = 3; string file_checksum = 4;
+  repeated ChunkLocation chunks = 5;
+}
+
+message ChunkInfo { string chunk_id = 1; int64 size = 2; }
+message HeartbeatRequest {
+  string node_id = 1; string address = 2;
+  int64 used_bytes = 3;               // logis (jumlah ukuran chunk)
+  int64 physical_bytes = 4;           // fisik (st_blocks*512)
+  int64 free_bytes = 5;
+  int32 chunk_count = 6;
+  bool  full_report = 7;
+  repeated ChunkInfo chunks = 8;      // diisi hanya bila full_report
+}
+message HeartbeatResponse { bool ok = 1; bool request_full_report = 2; }
+
+message ListRequest {}
+message FileInfo {
+  string name = 1; int64 size = 2; int32 chunks = 3;
+  string status = 4; int32 min_replicas = 5; int64 created_at = 6;
+}
+message ListResponse { repeated FileInfo files = 1; }
+
+message DeleteRequest { string filename = 1; }
+message DeleteResponse { bool ok = 1; string error = 2; int32 chunks_deleted = 3; }
+
+message StatusRequest {}
+message NodeStatus {
+  string node_id = 1; string address = 2; string state = 3;   // ALIVE | DOWN
+  int64 used_bytes = 4; int64 physical_bytes = 5; int64 free_bytes = 6;
+  int32 chunk_count = 7; double last_seen_age_s = 8;
+}
+message StatusResponse {
+  repeated NodeStatus nodes = 1;
+  int32 files = 2; int32 chunks = 3;
+  int32 under_replicated = 4; int32 lost = 5; int32 rereplications_done = 6;
+  int32 replication = 7;
+}
+
+service MasterService {
+  rpc AllocateChunks(AllocateRequest)     returns (AllocateResponse);
+  rpc ReallocateChunk(ReallocateRequest)  returns (ReallocateResponse);
+  rpc CommitFile(CommitRequest)           returns (CommitResponse);
+  rpc GetReadLocations(LocationsRequest)  returns (LocationsResponse);
+  rpc Heartbeat(HeartbeatRequest)         returns (HeartbeatResponse);
+  rpc ListFiles(ListRequest)              returns (ListResponse);
+  rpc DeleteFile(DeleteRequest)           returns (DeleteResponse);
+  rpc ClusterStatus(StatusRequest)        returns (StatusResponse);
+}
+
+// ---------- DataNodeService ----------
+message ChunkData {
+  string chunk_id = 1;                // wajib di pesan pertama
+  int64  offset   = 2;
+  bytes  data     = 3;                // frame <= 1 MiB
+  bool   last     = 4;
+}
+message StoreResponse { bool ok = 1; string error = 2; string checksum = 3; int64 bytes_written = 4; }
+message RetrieveRequest { string chunk_id = 1; }
+message ReplicateRequest {            // perintah master: kirim chunk ke target
+  string chunk_id = 1; string target_address = 2; string expected_checksum = 3;
+}
+message ReplicateResponse { bool ok = 1; string error = 2; int64 bytes = 3; double seconds = 4; }
+message DeleteChunkRequest { string chunk_id = 1; }
+message DeleteChunkResponse { bool ok = 1; }
+message StatsRequest {}
+message StatsResponse {
+  string node_id = 1; int64 used_bytes = 2; int64 physical_bytes = 3;
+  int64 free_bytes = 4; int32 chunk_count = 5; int64 bytes_in = 6; int64 bytes_out = 7;
+}
+
+service DataNodeService {
+  rpc StoreChunk(stream ChunkData)      returns (StoreResponse);
+  rpc RetrieveChunk(RetrieveRequest)    returns (stream ChunkData);
+  rpc ReplicateChunk(ReplicateRequest)  returns (ReplicateResponse);
+  rpc DeleteChunk(DeleteChunkRequest)   returns (DeleteChunkResponse);
+  rpc GetStats(StatsRequest)            returns (StatsResponse);
+}

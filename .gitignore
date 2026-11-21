@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+*.bin
+testdata/
+results/
+proto/dfs_pb2.py
+proto/dfs_pb2_grpc.py
+docker-compose.gen.yml
+monitoring/prometheus.gen.yml
+.ruff_cache/
+
+.megamemory/
+.superpowers/
+
