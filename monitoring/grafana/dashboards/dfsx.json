@@ -445,7 +445,7 @@
           "refId": "B"
         }
       ],
-      "title": "Storage per Node",
+      "title": "Disk per Node (host)",
       "type": "timeseries"
     },
     {

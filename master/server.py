@@ -71,6 +71,7 @@ class MasterServiceImpl(dfs_pb2_grpc.MasterServiceServicer):
     def __init__(self, state: ClusterState, store: MasterStore | None = None) -> None:
         self.state = state
         self.store = store
+        self._last_rerep_reported = 0
 
     @rpc_metric("Heartbeat")
     def Heartbeat(
@@ -171,7 +172,10 @@ class MasterServiceImpl(dfs_pb2_grpc.MasterServiceServicer):
             )
             dfs_under_replicated_chunks.set(under_rep)
             dfs_lost_chunks.set(lost)
-            dfs_rereplications_total.inc(self.state.rereplications_done)
+            delta = self.state.rereplications_done - self._last_rerep_reported
+            if delta > 0:
+                dfs_rereplications_total.inc(delta)
+            self._last_rerep_reported = self.state.rereplications_done
 
             return dfs_pb2.StatusResponse(
                 nodes=nodes_status,
