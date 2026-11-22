@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from pathlib import Path
 
 from client.download import Downloader
 from client.upload import Uploader
@@ -34,6 +35,10 @@ class LatencyRecorder:
 
     def reset(self) -> None:
         self._timings.clear()
+
+    def raw(self) -> list[tuple[str, float]]:
+        """Return raw (op, seconds) samples for cross-run aggregation."""
+        return list(self._timings)
 
 
 class Bench:
@@ -71,4 +76,72 @@ class Bench:
             "duration_s": dt,
             "throughput_mibs": size / dt / (1 << 20) if dt > 0 and size > 0 else 0.0,
             "bytes": size,
+        }
+
+    def bench_upload_all(
+        self,
+        local_dir: str,
+        remote_prefix: str = "",
+        chunk_size: int = 0,
+        force: bool = False,
+    ) -> dict:
+        """Upload every *.bin in local_dir; record per-file latency and totals."""
+        files = sorted(Path(local_dir).glob("*.bin"))
+        t0 = time.monotonic()
+        ok_count = 0
+        total_bytes = 0
+        for f in files:
+            t_file = time.monotonic()
+            ok = self.uploader.upload(
+                str(f), f"{remote_prefix}{f.name}", chunk_size, force
+            )
+            self.latency.record("upload", time.monotonic() - t_file)
+            if ok:
+                ok_count += 1
+            total_bytes += f.stat().st_size
+        duration = time.monotonic() - t0
+        return {
+            "op": "upload_all",
+            "ok": ok_count == len(files) and len(files) > 0,
+            "files_ok": ok_count,
+            "files_total": len(files),
+            "duration_s": duration,
+            "total_bytes": total_bytes,
+            "throughput_mibs": total_bytes / duration / (1 << 20)
+            if duration > 0
+            else 0.0,
+            "tasks_per_sec": len(files) / duration if duration > 0 else 0.0,
+        }
+
+    def bench_download_all(
+        self, local_dir: str, remote_prefix: str = "", sink: str = "null"
+    ) -> dict:
+        """Download every remote file corresponding to local_dir/*.bin."""
+        files = sorted(Path(local_dir).glob("*.bin"))
+        t0 = time.monotonic()
+        ok_count = 0
+        total_bytes = 0
+        for f in files:
+            t_file = time.monotonic()
+            ok = self.downloader.download(
+                remote=f"{remote_prefix}{f.name}",
+                local_path=f"/work/bench_dl_{f.name}",
+                sink=sink,
+            )
+            self.latency.record("download", time.monotonic() - t_file)
+            if ok:
+                ok_count += 1
+            total_bytes += f.stat().st_size
+        duration = time.monotonic() - t0
+        return {
+            "op": "download_all",
+            "ok": ok_count == len(files) and len(files) > 0,
+            "files_ok": ok_count,
+            "files_total": len(files),
+            "duration_s": duration,
+            "total_bytes": total_bytes,
+            "throughput_mibs": total_bytes / duration / (1 << 20)
+            if duration > 0
+            else 0.0,
+            "tasks_per_sec": len(files) / duration if duration > 0 else 0.0,
         }

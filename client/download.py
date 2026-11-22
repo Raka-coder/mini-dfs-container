@@ -4,8 +4,6 @@ import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
 
-import grpc
-
 from common.checksum import combine_checksums, sha256_bytes
 from common.grpc_util import get_channel
 from proto import dfs_pb2, dfs_pb2_grpc
@@ -19,9 +17,7 @@ class Downloader:
         self.stub = dfs_pb2_grpc.MasterServiceStub(self.channel)
         self.workers = workers
 
-    def _retrieve_chunk(
-        self, cl: dfs_pb2.ChunkLocation
-    ) -> tuple[bytes, str] | None:
+    def _retrieve_chunk(self, cl: dfs_pb2.ChunkLocation) -> tuple[bytes, str] | None:
         """Fetch chunk from first alive replica that passes checksum; None on total failure."""
         for na in cl.replicas:
             content = b""
@@ -34,7 +30,9 @@ class Downloader:
                 checksum = sha256_bytes(content)
                 if checksum == cl.checksum:
                     return content, checksum
-                logger.warning("CHECKSUM_MISMATCH chunk=%s node=%s", cl.chunk_id, na.node_id)
+                logger.warning(
+                    "CHECKSUM_MISMATCH chunk=%s node=%s", cl.chunk_id, na.node_id
+                )
             except Exception as e:  # noqa: BLE001 - failover on any retrieval error
                 logger.warning(
                     "RETRIEVE_FAILED chunk=%s node=%s err=%s",
@@ -56,17 +54,16 @@ class Downloader:
             return False
 
         retrieved: list[tuple[dfs_pb2.ChunkLocation, bytes, str]] = []
-        ok_all = True
-        for cl in locations.chunks:
-            got = self._retrieve_chunk(cl)
-            if got is None:
-                ok_all = False
-                break
-            retrieved.append((cl, got[0], got[1]))
-
-        if not ok_all:
+        with ThreadPoolExecutor(max_workers=self.workers) as ex:
+            fetched = list(ex.map(self._retrieve_chunk, locations.chunks))
+        if any(got is None for got in fetched):
             logger.error("DOWNLOAD_FAILED file=%s", remote)
             return False
+        retrieved = [
+            (cl, got[0], got[1])
+            for cl, got in zip(locations.chunks, fetched)
+            if got is not None
+        ]
 
         file_checksum = combine_checksums([chk for _, _, chk in retrieved])
         if file_checksum != locations.file_checksum:

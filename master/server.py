@@ -1,21 +1,26 @@
 from __future__ import annotations
 
-from concurrent import futures
-from contextlib import contextmanager
 import logging
 import signal
 import sys
 import time
 import uuid
+from concurrent import futures
 from functools import wraps
 from typing import Any
 
 import grpc
-from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, start_http_server
+from prometheus_client import (
+    CollectorRegistry,
+    Counter,
+    Gauge,
+    Histogram,
+    start_http_server,
+)
 
 from client.upload import chunk_bounds
 from common.config import config
-from common.grpc_util import OPTIONS
+from common.grpc_util import OPTIONS, get_channel
 from common.logging_setup import setup_logging
 from master.failure import FailureDetector
 from master.placement import pick_targets
@@ -27,8 +32,12 @@ from proto import dfs_pb2, dfs_pb2_grpc
 logger = logging.getLogger("dfs.master")
 
 _METRICS_REGISTRY = CollectorRegistry()
-dfs_nodes_alive = Gauge("dfs_nodes_alive", "Number of alive nodes", registry=_METRICS_REGISTRY)
-dfs_nodes_down = Gauge("dfs_nodes_down", "Number of down nodes", registry=_METRICS_REGISTRY)
+dfs_nodes_alive = Gauge(
+    "dfs_nodes_alive", "Number of alive nodes", registry=_METRICS_REGISTRY
+)
+dfs_nodes_down = Gauge(
+    "dfs_nodes_down", "Number of down nodes", registry=_METRICS_REGISTRY
+)
 dfs_under_replicated_chunks = Gauge(
     "dfs_under_replicated_chunks", "Under replicated chunks", registry=_METRICS_REGISTRY
 )
@@ -37,7 +46,10 @@ dfs_rereplications_total = Counter(
     "dfs_rereplications_total", "Total replications", registry=_METRICS_REGISTRY
 )
 dfs_rpc_seconds = Histogram(
-    "dfs_rpc_seconds", "gRPC call duration seconds", ["method"], registry=_METRICS_REGISTRY
+    "dfs_rpc_seconds",
+    "gRPC call duration seconds",
+    ["method"],
+    registry=_METRICS_REGISTRY,
 )
 
 
@@ -91,7 +103,9 @@ class MasterServiceImpl(dfs_pb2_grpc.MasterServiceServicer):
                     downtime = now - node.down_since
                     node.state = "ALIVE"
                     node.down_since = 0.0
-                    logger.info("NODE_UP node=%s downtime=%.1fs", request.node_id, downtime)
+                    logger.info(
+                        "NODE_UP node=%s downtime=%.1fs", request.node_id, downtime
+                    )
 
             node.used_bytes = request.used_bytes
             node.physical_bytes = request.physical_bytes
@@ -140,15 +154,21 @@ class MasterServiceImpl(dfs_pb2_grpc.MasterServiceServicer):
                 alive_replicas = [
                     nid
                     for nid in c.replicas
-                    if nid in self.state.nodes and self.state.nodes[nid].state == "ALIVE"
+                    if nid in self.state.nodes
+                    and self.state.nodes[nid].state == "ALIVE"
                 ]
                 if len(alive_replicas) == 0:
                     lost += 1
                 elif len(alive_replicas) < config.RF:
                     under_rep += 1
 
-            dfs_nodes_alive.set(sum(1 for n in self.state.nodes.values() if n.state == "ALIVE"))
-            dfs_nodes_down.set(len(self.state.nodes) - sum(1 for n in self.state.nodes.values() if n.state == "ALIVE"))
+            dfs_nodes_alive.set(
+                sum(1 for n in self.state.nodes.values() if n.state == "ALIVE")
+            )
+            dfs_nodes_down.set(
+                len(self.state.nodes)
+                - sum(1 for n in self.state.nodes.values() if n.state == "ALIVE")
+            )
             dfs_under_replicated_chunks.set(under_rep)
             dfs_lost_chunks.set(lost)
             dfs_rereplications_total.inc(self.state.rereplications_done)
@@ -173,7 +193,9 @@ class MasterServiceImpl(dfs_pb2_grpc.MasterServiceServicer):
 
             upload_id = uuid.uuid4().hex
             chunk_size = (
-                request.chunk_size if request.chunk_size > 0 else config.CHUNK_SIZE_MB * (1 << 20)
+                request.chunk_size
+                if request.chunk_size > 0
+                else config.CHUNK_SIZE_MB * (1 << 20)
             )
             file_size = request.file_size
             bounds = chunk_bounds(file_size, chunk_size)
@@ -245,21 +267,22 @@ class MasterServiceImpl(dfs_pb2_grpc.MasterServiceServicer):
                 config.RF,
                 exclude=frozenset(request.exclude_nodes),
                 holders=frozenset(
-                    nid
-                    for nid in plan["stored_on"]
-                    if nid not in request.exclude_nodes
+                    nid for nid in plan["stored_on"] if nid not in request.exclude_nodes
                 ),
             )
             plan["stored_on"] = [t.node_id for t in new_targets]
-            return dfs_pb2.ReallocateResponse(ok=True, chunk=dfs_pb2.ChunkPlan(
-                chunk_id=request.chunk_id,
-                index=plan["index"],
-                size=plan["size"],
-                targets=[
-                    dfs_pb2.NodeAddr(node_id=t.node_id, address=t.address)
-                    for t in new_targets
-                ],
-            ))
+            return dfs_pb2.ReallocateResponse(
+                ok=True,
+                chunk=dfs_pb2.ChunkPlan(
+                    chunk_id=request.chunk_id,
+                    index=plan["index"],
+                    size=plan["size"],
+                    targets=[
+                        dfs_pb2.NodeAddr(node_id=t.node_id, address=t.address)
+                        for t in new_targets
+                    ],
+                ),
+            )
 
     @rpc_metric("CommitFile")
     def CommitFile(
@@ -272,7 +295,9 @@ class MasterServiceImpl(dfs_pb2_grpc.MasterServiceServicer):
 
             under_replicated = 0
             for cr in request.chunks:
-                plan = next((c for c in ctx.chunks if c["chunk_id"] == cr.chunk_id), None)
+                plan = next(
+                    (c for c in ctx.chunks if c["chunk_id"] == cr.chunk_id), None
+                )
                 if len(cr.stored_on) < config.RF:
                     under_replicated += 1
                 self.state.chunks[cr.chunk_id] = ChunkMeta(
@@ -326,7 +351,8 @@ class MasterServiceImpl(dfs_pb2_grpc.MasterServiceServicer):
                 alive = sorted(
                     nid
                     for nid in cm.replicas
-                    if nid in self.state.nodes and self.state.nodes[nid].state == "ALIVE"
+                    if nid in self.state.nodes
+                    and self.state.nodes[nid].state == "ALIVE"
                 )
                 chunk_locations.append(
                     dfs_pb2.ChunkLocation(
@@ -334,7 +360,12 @@ class MasterServiceImpl(dfs_pb2_grpc.MasterServiceServicer):
                         index=cm.index,
                         size=cm.size,
                         checksum=cm.checksum,
-                        replicas=[dfs_pb2.NodeAddr(node_id=nid, address=self.state.nodes[nid].address) for nid in alive],
+                        replicas=[
+                            dfs_pb2.NodeAddr(
+                                node_id=nid, address=self.state.nodes[nid].address
+                            )
+                            for nid in alive
+                        ],
                     )
                 )
             return dfs_pb2.LocationsResponse(
@@ -366,6 +397,7 @@ class MasterServiceImpl(dfs_pb2_grpc.MasterServiceServicer):
     def DeleteFile(
         self, request: dfs_pb2.DeleteRequest, context: grpc.ServicerContext
     ) -> dfs_pb2.DeleteResponse:
+        replicas: list[tuple[str, str]] = []  # (chunk_id, node_address)
         with self.state.lock:
             fm = self.state.files.pop(request.filename, None)
             deleted_chunks = 0
@@ -377,9 +409,25 @@ class MasterServiceImpl(dfs_pb2_grpc.MasterServiceServicer):
                     deleted_chunks += 1
                     for nid in cm.replicas:
                         self.state.node_chunks.get(nid, set()).discard(cid)
+                        node = self.state.nodes.get(nid)
+                        if node is not None:
+                            replicas.append((cid, node.address))
                 if self.store is not None:
                     self.store.delete_file(request.filename)
-            return dfs_pb2.DeleteResponse(ok=True, chunks_deleted=deleted_chunks)
+
+        # Drop the bytes too, otherwise `rm --all` leaks chunk files on data nodes.
+        for cid, address in replicas:
+            try:
+                stub = dfs_pb2_grpc.DataNodeServiceStub(get_channel(address))
+                stub.DeleteChunk(dfs_pb2.DeleteChunkRequest(chunk_id=cid), timeout=5.0)
+            except grpc.RpcError as e:
+                logger.warning(
+                    "DELETE_CHUNK_FAILED chunk=%s node=%s err=%s",
+                    cid,
+                    address,
+                    e.code(),
+                )
+        return dfs_pb2.DeleteResponse(ok=True, chunks_deleted=deleted_chunks)
 
 
 def serve() -> None:

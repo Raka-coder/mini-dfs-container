@@ -1,144 +1,245 @@
+#!/usr/bin/env python3
+"""Benchmark matrix for DFS-X.
+
+Tier 1: fixed node count, vary client workers -> speedup / efficiency.
+Tier 2: fixed workers, vary node count (2/4/8/16) -> scalability.
+
+The workload itself runs inside the ``dfs-client`` container via ``podman exec``
+because published ports do not reach the master on this Podman/WSL2 host. The
+client prints one ``BENCH_JSON`` line per run and this script appends a CSV row.
+"""
+
 from __future__ import annotations
 
 import argparse
 import csv
 import json
+import logging
+import subprocess
+import sys
 from pathlib import Path
 
-from client.bench import Bench
-from client.gendata import PROFILES, generate
-from common.config import config
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
-RESULTS_DIR = Path("results")
-BENCH_RUNS_CSV = RESULTS_DIR / "bench_runs.csv"
-LATENCY_DIR = RESULTS_DIR
-SUMMARY_MD = RESULTS_DIR / "SUMMARY.md"
+from common.logging_setup import setup_logging
+
+logger = logging.getLogger("dfs.bench_matrix")
+
+RESULTS = ROOT / "results"
+BENCH_CSV = RESULTS / "bench_runs.csv"
+CLUSTER = ROOT / "scripts" / "cluster.py"
+
+FIELDS = [
+    "tier",
+    "nodes",
+    "profile",
+    "workers",
+    "run_idx",
+    "upload_ok",
+    "download_ok",
+    "duration_s",
+    "total_bytes",
+    "throughput_mibps",
+    "tasks_per_sec",
+    "latency_avg_s",
+    "latency_p50_s",
+    "latency_p95_s",
+    "download_duration_s",
+    "download_throughput_mibs",
+]
 
 
-def run_tier1() -> list[dict]:
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    profile = "full"
-    count, size_mb, _ = PROFILES[profile]
-    data_dir = Path("/work/testdata")
-    generate(data_dir, profile, count, size_mb, 0, 1024)
+class CsvSink:
+    """Append-only CSV writer that flushes every row (long runs must not be lost)."""
 
-    sample = data_dir / "f001.bin"
-    if not sample.exists():
-        raise FileNotFoundError(f"sample file missing: {sample}")
+    def __init__(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._fh = path.open("w", newline="", encoding="utf-8")
+        self._writer = csv.DictWriter(self._fh, fieldnames=FIELDS)
+        self._writer.writeheader()
+        self._fh.flush()
 
-    master_addr = config.MASTER_ADDR
-    rows: list[dict] = []
-    bench = None
-    for workers in (1, 2, 4, 8):
-        bench = Bench(master_addr=master_addr, workers=workers)
-        bench.latency.reset()
-        up = bench.bench_upload(
-            local_path=str(sample),
-            remote="bench_f001.bin",
-            chunk_size=size_mb * (1 << 20),
-            force=True,
-        )
-        down = bench.bench_download(
-            remote="bench_f001.bin",
-            local_path="/work/bench_dl.bin",
-            sink="null",
-            size=size_mb * (1 << 20),
-        )
-        rows.append(
-            {
-                "tier": 1,
-                "nodes": 3,
-                "profile": profile,
-                "workers": workers,
-                "status": "OK" if (up["ok"] and down["ok"]) else "FAIL",
-                "upload_throughput_mibs": round(up["throughput_mibs"], 3),
-                "download_throughput_mibs": round(down["throughput_mibs"], 3),
-                "upload_duration_s": round(up["duration_s"], 3),
-                "download_duration_s": round(down["duration_s"], 3),
-            }
-        )
-        print(
-            f"W={workers}: upload={up['throughput_mibs']:.2f} MiB/s "
-            f"download={down['throughput_mibs']:.2f} MiB/s "
-            f"status={rows[-1]['status']}",
-            flush=True,
-        )
+    def write(self, row: dict) -> None:
+        self._writer.writerow(row)
+        self._fh.flush()
 
-    # latency summary from the last run (W=8) is most representative; but we want
-    # accumulated timings. Re-run latency capture is already in bench.latency of
-    # the last Bench instance (only last run). Rebuild an accumulated recorder
-    # by re-running is wasteful; instead persist the last run's summary and
-    # also write per-worker throughput above. For latency avg/p95 we use the
-    # accumulated across all worker counts by re-running a single W=4 pass.
-    lat_bench = Bench(master_addr=master_addr, workers=4)
-    lat_bench.latency.reset()
-    lat_bench.bench_upload(
-        str(sample), "bench_f001.bin", size_mb * (1 << 20), force=True
+    def close(self) -> None:
+        self._fh.close()
+
+
+def _run(
+    cmd: list[str], timeout: int, check: bool = True
+) -> subprocess.CompletedProcess:
+    logger.info("RUN %s", " ".join(str(c) for c in cmd))
+    proc = subprocess.run(
+        cmd, check=False, text=True, capture_output=True, timeout=timeout
     )
-    lat_bench.bench_download(
-        "bench_f001.bin", "/work/bench_dl.bin", sink="null", size=size_mb * (1 << 20)
-    )
-    (LATENCY_DIR / "latency_run1.json").write_text(
-        json.dumps(lat_bench.latency.summary(), indent=2), encoding="utf-8"
+    if check and proc.returncode != 0:
+        logger.error("CMD_FAILED rc=%d stderr=%s", proc.returncode, proc.stderr[-2000:])
+        raise SystemExit(proc.returncode)
+    return proc
+
+
+def _cli(*args: str, timeout: int = 3600) -> subprocess.CompletedProcess:
+    return _run(
+        ["podman", "exec", "dfs-client", "python", "-m", "client.cli", *args],
+        timeout=timeout,
+        check=False,
     )
 
-    with BENCH_RUNS_CSV.open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-        w.writeheader()
-        w.writerows(rows)
 
-    # speedup/efficiency based on upload duration
-    base = rows[0]["upload_duration_s"]
-    for r in rows:
-        r["speedup"] = (
-            round(base / r["upload_duration_s"], 3)
-            if r["upload_duration_s"] > 0
-            else 0.0
-        )
-        r["efficiency"] = round(r["speedup"] / r["workers"], 3)
+def _cluster(action: str, *extra: str) -> None:
+    _run([sys.executable, str(CLUSTER), action, *extra], timeout=1800)
 
-    lines = [
-        "# DFS-X Benchmark SUMMARY",
-        "",
-        "tier=1",
-        "profile=full (representative f001.bin, 50 MiB)",
-        "nodes=3",
-        "",
-    ]
-    lines.append(
-        "| workers | upload MiB/s | download MiB/s | upload s | speedup | efficiency |"
+
+def _bench_json(*args: str) -> dict:
+    proc = _cli("bench", *args)
+    for line in proc.stdout.splitlines():
+        if line.startswith("BENCH_JSON "):
+            return json.loads(line[len("BENCH_JSON ") :])
+    logger.error("NO_BENCH_JSON rc=%d tail=%s", proc.returncode, proc.stdout[-2000:])
+    raise SystemExit(1)
+
+
+def _wait_ready(nodes: int) -> None:
+    proc = _cli("wait-ready", "--min-nodes", str(nodes), "--timeout", "180")
+    if proc.returncode != 0:
+        logger.error("CLUSTER_NOT_READY nodes=%d", nodes)
+        raise SystemExit(1)
+    logger.info("CLUSTER_READY nodes=%d", nodes)
+
+
+def _gen_data(profile: str) -> None:
+    proc = _cli("gen-data", "--profile", profile, timeout=1800)
+    if proc.returncode != 0:
+        logger.error("GEN_DATA_FAILED profile=%s err=%s", profile, proc.stderr[-2000:])
+        raise SystemExit(1)
+
+
+def _rm_all() -> None:
+    proc = _cli("rm", "--all", timeout=600)
+    if proc.returncode != 0:
+        logger.error("RM_ALL_FAILED err=%s", proc.stderr[-2000:])
+        raise SystemExit(1)
+
+
+def _one_run(
+    sink: CsvSink,
+    tier: int,
+    nodes: int,
+    profile: str,
+    workers: int,
+    run_idx: int,
+    chunk_mb: int,
+) -> None:
+    _rm_all()
+    up = _bench_json(
+        "--mode",
+        "upload-all",
+        "--dir",
+        "/work/testdata",
+        "--workers",
+        str(workers),
+        "--chunk-mb",
+        str(chunk_mb),
+        "--force",
     )
-    lines.append("|---|---|---|---|---|---|")
-    for r in rows:
-        lines.append(
-            f"| {r['workers']} | {r['upload_throughput_mibs']} | "
-            f"{r['download_throughput_mibs']} | {r['upload_duration_s']} | "
-            f"{r['speedup']} | {r['efficiency']} |"
-        )
-    lat = json.loads((LATENCY_DIR / "latency_run1.json").read_text())
-    lines.append("")
-    lines.append("Latency (W=4 representative run):")
-    for op in sorted(lat):
-        lines.append(
-            f"- {op}: avg={lat[op]['avg']:.3f}s p50={lat[op]['p50']:.3f}s "
-            f"p95={lat[op]['p95']:.3f}s p99={lat[op]['p99']:.3f}s "
-            f"n={lat[op]['count']}"
-        )
-    SUMMARY_MD.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return rows
+    down = _bench_json(
+        "--mode",
+        "download-all",
+        "--dir",
+        "/work/testdata",
+        "--workers",
+        str(workers),
+        "--sink",
+        "null",
+    )
+    lat = up.get("latency", {}).get("upload", {})
+    row = {
+        "tier": tier,
+        "nodes": nodes,
+        "profile": profile,
+        "workers": workers,
+        "run_idx": run_idx,
+        "upload_ok": int(bool(up.get("ok"))),
+        "download_ok": int(bool(down.get("ok"))),
+        "duration_s": round(float(up.get("duration_s", 0.0)), 3),
+        "total_bytes": int(up.get("total_bytes", 0)),
+        "throughput_mibps": round(float(up.get("throughput_mibs", 0.0)), 3),
+        "tasks_per_sec": round(float(up.get("tasks_per_sec", 0.0)), 3),
+        "latency_avg_s": round(float(lat.get("avg", 0.0)), 4),
+        "latency_p50_s": round(float(lat.get("p50", 0.0)), 4),
+        "latency_p95_s": round(float(lat.get("p95", 0.0)), 4),
+        "download_duration_s": round(float(down.get("duration_s", 0.0)), 3),
+        "download_throughput_mibs": round(float(down.get("throughput_mibs", 0.0)), 3),
+    }
+    sink.write(row)
+    logger.info(
+        "ROW tier=%d nodes=%d profile=%s W=%d run=%d up=%.2f MiB/s down=%.2f MiB/s tasks/s=%.2f",
+        tier,
+        nodes,
+        profile,
+        workers,
+        run_idx,
+        row["throughput_mibps"],
+        row["download_throughput_mibs"],
+        row["tasks_per_sec"],
+    )
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="DFS-X Benchmark Matrix")
-    p.add_argument("--tier", type=int, default=1, choices=[1, 2, 3])
-    p.add_argument("--run-id", default="run1")
+    setup_logging("dfs.bench_matrix")
+    p = argparse.ArgumentParser(description="DFS-X benchmark matrix")
+    p.add_argument("--tier", default="all", choices=["1", "2", "all"])
+    p.add_argument("--runs", type=int, default=3, help="runs per configuration")
+    p.add_argument("--tier1-nodes", type=int, default=3)
+    p.add_argument("--workers", default="1,2,4,8")
+    p.add_argument("--tier1-chunk-mb", type=int, default=8)
+    p.add_argument("--tier2-nodes", default="2,4,8,16")
+    p.add_argument("--tier2-workers", type=int, default=4)
+    p.add_argument("--tier2-chunk-mb", type=int, default=1)
     args = p.parse_args()
-    if args.tier == 1:
-        run_tier1()
-    elif args.tier == 2:
-        raise NotImplementedError("tier 2 not implemented")
-    else:
-        raise NotImplementedError("tier 3 not implemented")
+
+    sink = CsvSink(BENCH_CSV)
+    try:
+        if args.tier in ("1", "all"):
+            _gen_data("full")
+            for workers in [int(w) for w in args.workers.split(",")]:
+                for run_idx in range(1, args.runs + 1):
+                    _one_run(
+                        sink,
+                        1,
+                        args.tier1_nodes,
+                        "full",
+                        workers,
+                        run_idx,
+                        args.tier1_chunk_mb,
+                    )
+
+        if args.tier in ("2", "all"):
+            for nodes in [int(n) for n in args.tier2_nodes.split(",")]:
+                _cluster("down", "-v")
+                _cluster("up", "--nodes", str(nodes))
+                _wait_ready(nodes)
+                _gen_data("lite")
+                for run_idx in range(1, args.runs + 1):
+                    _one_run(
+                        sink,
+                        2,
+                        nodes,
+                        "lite",
+                        args.tier2_workers,
+                        run_idx,
+                        args.tier2_chunk_mb,
+                    )
+            # Leave the cluster at the tier-1 size for the fault test.
+            _cluster("up", "--nodes", args.tier1_nodes)
+            _wait_ready(args.tier1_nodes)
+    finally:
+        sink.close()
+
+    logger.info("BENCH_MATRIX_DONE csv=%s", BENCH_CSV)
     return 0
 
 

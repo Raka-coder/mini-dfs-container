@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
-from typing import Iterator
 
 import grpc
 
@@ -29,7 +29,7 @@ def chunk_bounds(file_size: int, chunk_size: int) -> list[tuple[int, int]]:
 
 class Uploader:
     def __init__(self, master_addr: str, workers: int = 8) -> None:
-        from proto import dfs_pb2, dfs_pb2_grpc
+        from proto import dfs_pb2_grpc
 
         self.channel = get_channel(master_addr)
         self.stub = dfs_pb2_grpc.MasterServiceStub(self.channel)
@@ -56,7 +56,7 @@ class Uploader:
             logger.error("ALLOCATE_FAILED file=%s err=%s", remote, allocate.error)
             return False
 
-        def store_to(plan: "dfs_pb2.ChunkPlan") -> tuple[str, list[str]]:
+        def store_to(plan: dfs_pb2.ChunkPlan) -> tuple[str, list[str]]:
             content = b""
             with open(local_path, "rb") as f:
                 f.seek(plan.index * size)
@@ -65,7 +65,7 @@ class Uploader:
             stored_on: list[str] = []
             for t in plan.targets:
 
-                def gen() -> Iterator["dfs_pb2.ChunkData"]:
+                def gen() -> Iterator[dfs_pb2.ChunkData]:
                     offset = 0
                     total = len(content)
                     while offset < total:
@@ -80,11 +80,18 @@ class Uploader:
 
                 try:
                     resp = with_retry(
-                        lambda: dfs_pb2_grpc.DataNodeServiceStub(get_channel(t.address)).StoreChunk(gen(), timeout=60.0)
+                        lambda t=t: dfs_pb2_grpc.DataNodeServiceStub(
+                            get_channel(t.address)
+                        ).StoreChunk(gen(), timeout=60.0)
                     )
                 except grpc.RpcError as e:
                     # A dead replica must not abort the upload; reallocation picks another node.
-                    logger.warning("STORE_FAILED chunk=%s node=%s err=%s", plan.chunk_id, t.node_id, e.code())
+                    logger.warning(
+                        "STORE_FAILED chunk=%s node=%s err=%s",
+                        plan.chunk_id,
+                        t.node_id,
+                        e.code(),
+                    )
                     continue
                 if resp.ok and resp.checksum == checksum:
                     stored_on.append(t.node_id)
@@ -97,7 +104,7 @@ class Uploader:
                     )
             return checksum, stored_on
 
-        def store_one(plan: "dfs_pb2.ChunkPlan", upload_id: str) -> "dfs_pb2.ChunkResult":
+        def store_one(plan: dfs_pb2.ChunkPlan, upload_id: str) -> dfs_pb2.ChunkResult:
             checksum, stored_on = store_to(plan)
             failed = [t.node_id for t in plan.targets if t.node_id not in stored_on]
             if failed and len(stored_on) < len(plan.targets):
@@ -120,7 +127,9 @@ class Uploader:
             )
 
         with ThreadPoolExecutor(max_workers=self.workers) as ex:
-            results = list(ex.map(lambda c: store_one(c, allocate.upload_id), allocate.chunks))
+            results = list(
+                ex.map(lambda c: store_one(c, allocate.upload_id), allocate.chunks)
+            )
 
         failed = [r.chunk_id for r in results if not r.stored_on]
         if failed:
