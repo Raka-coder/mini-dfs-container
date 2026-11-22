@@ -1,7 +1,7 @@
 scenario,status,duration_s
-f1,PASS,20.64
-f2,PASS,63.09
-f3,PASS,50.58
-f4,PASS,9.25
-f5,PASS,0.88
-f6,PASS,31.7
+f1,PASS,21.83
+f2,PASS,63.64
+f3,PASS,50.56
+f4,PASS,5.56
+f5,PASS,0.83
+f6,PASS,15.94

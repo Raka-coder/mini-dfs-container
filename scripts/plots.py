@@ -45,7 +45,7 @@ def _tier(tier: str) -> list[dict]:
 
 def plot_speedup_vs_workers() -> Path | None:
     rows = _tier("1")
-    up = _mean_by(rows, "workers", "upload_throughput_mibs")
+    up = _mean_by(rows, "workers", "throughput_mibps")
     down = _mean_by(rows, "workers", "download_throughput_mibs")
     if not up:
         print("SKIPPED: no tier-1 data")
@@ -71,7 +71,7 @@ def plot_speedup_vs_workers() -> Path | None:
 
 def plot_efficiency_vs_workers() -> Path | None:
     rows = _tier("1")
-    up = _mean_by(rows, "workers", "upload_throughput_mibs")
+    up = _mean_by(rows, "workers", "throughput_mibps")
     down = _mean_by(rows, "workers", "download_throughput_mibs")
     if not up:
         print("SKIPPED: no tier-1 data")
@@ -99,7 +99,7 @@ def plot_efficiency_vs_workers() -> Path | None:
 
 
 def plot_throughput_vs_nodes() -> Path | None:
-    up = _mean_by(_tier("2"), "nodes", "upload_throughput_mibs")
+    up = _mean_by(_tier("2"), "nodes", "throughput_mibps")
     down = _mean_by(_tier("2"), "nodes", "download_throughput_mibs")
     if not up:
         print("SKIPPED: no tier-2 data")
@@ -116,7 +116,7 @@ def plot_throughput_vs_nodes() -> Path | None:
 
 
 def plot_scalability_nodes() -> Path | None:
-    up = _mean_by(_tier("2"), "nodes", "upload_throughput_mibs")
+    up = _mean_by(_tier("2"), "nodes", "throughput_mibps")
     if not up:
         print("SKIPPED: no tier-2 data")
         return None

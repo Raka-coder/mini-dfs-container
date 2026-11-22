@@ -31,7 +31,9 @@ DFS-X Terminal adalah implementasi sistem berkas terdistribusi mini berbasis CLI
    - [Generasi 9 Grafik Analisis Ilmiah](#generasi-9-grafik-analisis-ilmiah)
 9. [Monitoring Stack (Prometheus & Grafana)](#-monitoring-stack-prometheus--grafana)
 10. [Pemeliharaan & Pembersihan Resource Disk](#-pemeliharaan--pembersihan-resource-disk)
-11. [Kepatuhan & Aturan Teknis (Rules of Engagement)](#-kepatuhan--aturan-teknis-rules-of-engagement)
+11. [Panduan Video Demo (Max 10 Menit)](#-panduan-video-demo-max-10-menit)
+12. [Troubleshooting Umum](#-troubleshooting-umum)
+13. [Kepatuhan & Aturan Teknis (Rules of Engagement)](#-kepatuhan--aturan-teknis-rules-of-engagement)
 
 ---
 
@@ -134,6 +136,19 @@ Jalankan container cluster menggunakan Podman Compose:
 podman-compose -p dfsx up -d
 ```
 *(Atau menggunakan helper cross-platform: `python scripts/cluster.py up --nodes 3`)*
+
+### Metode Deploy Stabil (WSL2 / Podman Windows)
+
+Di lingkungan Podman Windows (WSL2 backend) komponen `aardvark-dns` sering gagal start sehingga `podman-compose` tidak bisa resolve nama container. Metode yang terbukti stabil adalah **menjalankan container satu per satu dengan `--network dfsnet` (tanpa DNS)**, di mana setiap container mendapat static IP dan entri `/etc/hosts` via `--add-host`. Orkestrator ini sudah diimplementasikan di `scripts/cluster.py`:
+
+```bash
+python scripts/cluster.py build                  # build image localhost/dfsx:latest
+python scripts/cluster.py down -v               # bersihkan cluster + volume
+python scripts/cluster.py up --nodes 3          # 1 master + 3 datanode + 1 client
+python scripts/cluster.py up --nodes 16         # skalabilitas hingga 16 node
+```
+
+Network `dfsnet` dibuat dengan `--disable-dns --subnet 10.90.0.0/24`; master di `10.90.0.13`, datanode `10.90.0.14..`, client `10.90.0.14+N`. Semua container mendapat `--add-host` untuk tiap nama sehingga resolusi nama berfungsi tanpa DNS. **Gunakan metode ini** untuk eksperimen; `podman-compose` hanya referensi.
 
 ### Memeriksa Status & Kesiapan Cluster
 
@@ -278,6 +293,28 @@ podman-compose -p dfsx-mon -f docker-compose.monitoring.yml down -v
 # Pembersihan menyeluruh sistem podman
 podman system prune -a --volumes -f
 ```
+
+---
+
+## 🎬 Panduan Video Demo (Max 10 Menit)
+
+Struktur presentasi video (max 10 menit):
+
+- **0–1 mnt — Topologi:** tampilkan `podman ps`, arsitektur 1 master + N datanode + client, network `dfsnet` dengan static IP.
+- **1–3 mnt — Upload & Verify:** `gen-data --profile lite`, `upload /work/testdata/f001.bin f001.bin`, `info f001.bin` (tunjukkan 2 replika di node berbeda — anti-affinity), `verify f001.bin`.
+- **3–6 mnt — Kill-node demo & auto-recovery:** `stop dfs-dn1`, upload file besar, master menandai node DOWN, realokasi otomatis, `start dfs-dn1`, tunggu re-replication, `status` kembali sehat.
+- **6–8 mnt — Grafik performa:** tampilkan 7 plot di `results/plots/` (speedup, efficiency, throughput vs nodes, scalability, tasks/s, latency, recovery timeline).
+- **8–10 mnt — Kesimpulan:** ringkasan pencapaian (RF=2, anti-affinity, fault recovery F1–F6, skalabilitas 2–16 node), keterbatasan hardware (2 GB RAM VM).
+
+## 🔧 Troubleshooting Umum
+
+- **grpcio build fail / `protoc` error:** pastikan `.venv` Python 3.12 aktif; regenerasi stub dengan `python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. proto/dfs.proto`. Protobuf stub (`proto/dfs_pb2*.py`) sengaja di-gitignore.
+- **Podman cgroup error (`cannot bind`, `conmon` state):** jangan pakai `--memory`/`--cpus` pada `podman run` di VM ini; gunakan `scripts/cluster.py` yang sudah `--cgroups=disabled`. Jika machine rusak: `podman machine stop` → `podman machine rm` → `podman machine init --cpus 4 --memory 4096` → `podman machine start`.
+- **aardvark-dns gagal start:** gunakan `scripts/cluster.py` (network `--disable-dns` + static IP + `--add-host`), jangan patch `docker-compose.yml`.
+- **Node DOWN:** cek `podman ps`, restart container (`podman start dfs-dnN`), tunggu heartbeat (timeout 10 s, scan 2 s). Master menandai DOWN setelah 10 s tanpa heartbeat.
+- **RESOURCE_EXHAUSTED / DISK_LOW:** storage sisa 28 GB. Profil `full` = 100×50 MB (RF=2 → ~10 GB/run); gunakan profil `lite` untuk 8/16 node. Jalankan `rm --all` antar run. `DeleteFile` kini menghapus chunk di datanode (sebelumnya metadata saja).
+- **Master tidak reachable dari host:** port publish 50051 tidak berfungsi di VM ini; jalankan benchmark via `podman exec dfs-client python -m scripts.bench_matrix`.
+- **Protobuf version warning:** gencode 5.27.2 vs runtime 5.28.2 — warning, bukan error; abaikan.
 
 ---
 
