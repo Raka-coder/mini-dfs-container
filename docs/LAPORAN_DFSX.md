@@ -183,9 +183,29 @@ Eksperimen: 100 berkas × 50 MiB, variasi worker 1, 2, 4, 8, 3 run per konfigura
 
 **Analisis:** Speedup upload tidak ideal (0.98–1.09×) karena master single-writer allocation dan per-chunk RPC menjadi bottleneck. Upload throughput jenuh di ~30 MiB/s terlepas dari jumlah worker. Download scales monotonis (101→118 MiB/s) karena pembacaan diparalelkan lintas replika. Efficiency rendah (0.12–0.55) menunjukkan overhead koordinasi master mendominasi.
 
-Grafik: `results/plots/speedup_vs_workers.png`, `efficiency_vs_workers.png`, `tasks_per_sec.png`.
+**Tabel 1.** Speedup dan efisiensi (Tier 1, full, 3 node, 100 berkas × 50 MiB).
+
+**Gambar 1.** Speedup vs Workers (3 node, full profile, 100 berkas × 50 MiB).
+
+![Gambar 1](../results/plots/speedup_vs_workers.png)
+
+Gambar 1 menunjukkan speedup unggah (garis biru) stagnan di sekitar 1.0× terlepas dari penambahan worker. Hal ini menandakan bottleneck bukan pada paralelisme worker, melainkan pada master yang melakukan alokasi chunk secara sekuensial dan RPC per chunk. Sebaliknya, speedup unduh (garis oranye) meningkat monotonis dari 1.0× (W=1) hingga 1.16× (W=8), menunjukkan pembacaan paralel lintas replika memberikan manfaat nyata. Garis putus-putus abu-abu adalah speedup ideal (y=W) sebagai pembanding teoritis.
+
+**Gambar 2.** Efficiency vs Workers (3 node, full profile).
+
+![Gambar 2](../results/plots/efficiency_vs_workers.png)
+
+Gambar 2 memperlihatkan efisiensi (S/P) yang rendah: 0.546 pada W=2, 0.268 pada W=4, dan 0.122 pada W=8. Nilai di bawah 1.0 menandakan overhead koordinasi melebihi manfaat paralelisme. Pada W=8, efisiensi 0.122 berarti 87.8% kapasitas worker terbuang untuk overhead. Ini konsisten dengan teori Amdahl: jika bagian sekuensial (alokasi master) mendominasi, penambahan worker tidak meningkatkan throughput.
+
+**Gambar 3.** Throughput dalam tasks/s (Tier 1, 100 berkas × 50 MiB).
+
+![Gambar 3](../results/plots/tasks_per_sec.png)
+
+Gambar 3 menunjukkan throughput sekitar 0.6 tasks/s (berkas per detik) yang tidak naik signifikan dengan penambahan worker. Hal ini mengkonfirmasi bahwa bottleneck berada di master (alokasi dan commit), bukan di worker. Pada W=8, throughput justru sedikit turun (0.585) akibat overhead context switching dan contention pada RLock master.
 
 ### 5.2 Latency (representative W=4, full, 100 berkas)
+
+**Tabel 2.** Latency per operasi (W=4, full, 100 berkas).
 
 | operasi | avg (s) | p50 (s) | p95 (s) | p99 (s) | n |
 |---|---|---|---|---|---|
@@ -194,11 +214,17 @@ Grafik: `results/plots/speedup_vs_workers.png`, `efficiency_vs_workers.png`, `ta
 
 Latency unggah lebih tinggi dari unduh karena unggah melibatkan alokasi chunk, streaming ke dua replika, dan commit; unduh hanya membaca dari replika pertama yang lolos checksum. p99 unduh (2.57 s) jauh lebih tinggi dari p95 (0.41 s) karena satu outlier (replika gagal, fallback ke replika kedua).
 
-Grafik: `results/plots/latency_per_op.png`.
+**Gambar 4.** Latency per Operasi (avg dan p95, W=4, full, 100 berkas).
+
+![Gambar 4](../results/plots/latency_per_op.png)
+
+Gambar 4 menampilkan latensi rata-rata dan p95 per operasi. Latensi unggah (1.42 s avg, 2.58 s p95) jauh lebih tinggi dari unduh (0.42 s avg, 0.41 s p95) karena unggah melibatkan tiga tahap (alokasi, streaming ke dua replika, commit) sementara unduh hanya membaca dari satu replika. Nilai p95 unggah (2.58 s) menunjukkan 5% berkas memerlukan waktu lebih lama akibat realokasi chunk (node mati sementara). p99 unduh (2.57 s) menunjukkan satu outlier fallback ke replika kedua.
 
 ### 5.3 Skalabilitas (Tier 2, lite, 4 worker)
 
 Eksperimen: 100 berkas × 5 MiB, node 2, 4, 8, 16, 3 run per konfigurasi.
+
+**Tabel 3.** Skalabilitas (Tier 2, lite, 4 worker, 100 berkas × 5 MiB).
 
 | nodes | upload MiB/s | download MiB/s | tasks/s | latency avg (s) | speedup (vs 2 node) |
 |---|---|---|---|---|---|
@@ -211,9 +237,21 @@ Throughput menurun saat node bertambah (40→18 MiB/s) dan latensi per berkas na
 
 Catatan: profil `lite` (100×5 MiB) digunakan untuk uji skalabilitas karena profil `full` (100×50 MiB) memerlukan 10 GB per run (RF=2) dan 12 run berurutan melebihi storage 28 GB. Tren skalabilitas tidak bergantung pada ukuran file karena yang diukur adalah placement dan RPC fan-out, bukan volume data.
 
-Grafik: `results/plots/throughput_vs_nodes.png`, `scalability_nodes.png`.
+**Gambar 5.** Throughput vs Jumlah Node (Tier 2, lite, 4 worker).
+
+![Gambar 5](../results/plots/throughput_vs_nodes.png)
+
+Gambar 5 menunjukkan throughput menurun saat jumlah node bertambah dari 2 ke 16. Upload turun dari 40.2 menjadi 18.3 MiB/s; download turun dari 82.8 menjadi 24.5 MiB/s. Penurunan ini disebabkan fan-out RPC lintas node pada VM berkapasitas 2 GiB: lebih banyak node berarti lebih banyak koneksi dan overhead koordinasi master, tanpa peningkatan bandwidth fisik. Ini konsisten dengan teori bahwa skalabilitas horizontal memerlukan bandwidth dan memori yang proporsional.
+
+**Gambar 6.** Skalabilitas (speedup vs 2 node, Tier 2).
+
+![Gambar 6](../results/plots/scalability_nodes.png)
+
+Gambar 6 menampilkan speedup relatif terhadap 2 node. Pada 4 node speedup 0.861, pada 8 node 0.671, dan pada 16 node 0.456 — semuanya di bawah garis ideal (linear). Ini menunjukkan sistem tidak dapat menskalakan throughput secara linear dengan penambahan node pada konfigurasi VM 2 GiB. Latensi per berkas naik dari 0.124 s (2 node) menjadi 0.273 s (16 node), mengkonfirmasi overhead koordinasi.
 
 ### 5.4 Toleransi Kegagalan (F1–F6)
+
+**Tabel 4.** Hasil uji toleransi kegagalan (F1–F6).
 
 | skenario | status | durasi (s) | deskripsi |
 |---|---|---|---|
@@ -226,7 +264,11 @@ Grafik: `results/plots/throughput_vs_nodes.png`, `scalability_nodes.png`.
 
 Semua skenario lulus. F5 membuktikan incremental SHA-256 mendeteksi korupsi 1 byte. F6 membuktikan SQLite WAL mempertahankan metadata setelah restart master.
 
-Grafik: `results/plots/recovery_timeline.png`.
+**Gambar 7.** Timeline Pemulihan Kegagalan (F1–F6).
+
+![Gambar 7](../results/plots/recovery_timeline.png)
+
+Gambar 7 menampilkan durasi pemulihan tiap skenario. F2 (auto-repair + download failover) terlama (63.64 s) karena menunggu re-replikasi selesai setelah node recovery. F5 (corrupt chunk) tercepat (0.83 s) karena hanya mendeteksi checksum mismatch dan fallback ke replika lain tanpa re-replikasi. F6 (master restart + WAL) selesai dalam 15.94 s, membuktikan persistensi metadata via SQLite WAL. Semua skenario lulus (6/6).
 
 ### 5.5 Unit Test
 
