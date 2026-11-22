@@ -28,7 +28,7 @@ DFS-X Terminal adalah implementasi sistem berkas terdistribusi mini berbasis CLI
 7. [Pengujian Toleransi Kegagalan (Fault Tolerance F1–F6)](#-pengujian-toleransi-kegagalan-fault-tolerance-f1f6)
 8. [Benchmarking & Skalabilitas (2 hingga 16 Node)](#-benchmarking--skalabilitas-2-hingga-16-node)
    - [Eksekusi Matriks Benchmark](#eksekusi-matriks-benchmark)
-   - [Generasi 9 Grafik Analisis Ilmiah](#generasi-9-grafik-analisis-ilmiah)
+   - [Generasi 7 Grafik Analisis Ilmiah](#generasi-9-grafik-analisis-ilmiah)
 9. [Monitoring Stack (Prometheus & Grafana)](#-monitoring-stack-prometheus--grafana)
 10. [Pemeliharaan & Pembersihan Resource Disk](#-pemeliharaan--pembersihan-resource-disk)
 11. [Panduan Video Demo (Max 10 Menit)](#-panduan-video-demo-max-10-menit)
@@ -87,7 +87,7 @@ graph TD
 
 ```bash
 git clone https://github.com/Raka-coder/mini-dfs-container.git
-cd dfs-x
+cd mini-dfs-container
 ```
 
 ### 2. Persiapan Lingkungan Virtual & Dependensi
@@ -131,12 +131,23 @@ podman build -t localhost/dfsx:latest .
 
 ### Menjalankan Cluster Default (1 Master + 3 DataNodes + 1 Client)
 
-Jalankan container cluster menggunakan Podman Compose:
+Metode utama (stabil di Podman Windows/WSL2):
+
+```bash
+python scripts/cluster.py build            # build image localhost/dfsx:latest
+python scripts/cluster.py down -v          # bersihkan cluster + volume (opsional)
+python scripts/cluster.py up --nodes 3     # 1 master + 3 datanode + 1 client
+```
+
+Alternatif (hanya jika aardvark-dns berfungsi di VM Anda):
 
 ```bash
 podman-compose -p dfsx up -d
 ```
-*(Atau menggunakan helper cross-platform: `python scripts/cluster.py up --nodes 3`)*
+
+> **Catatan:** Di Podman Windows/WSL2, `podman-compose` sering gagal karena `aardvark-dns`
+> tidak bisa start. Jika gagal, gunakan metode utama di atas (lihat juga bagian
+> "Metode Deploy Stabil" dan Cheat Sheet bagian F).
 
 ### Metode Deploy Stabil (WSL2 / Podman Windows)
 
@@ -246,7 +257,7 @@ podman-compose -p dfsx -f docker-compose.gen.yml up -d
 python -m scripts.bench_matrix --tier 2
 ```
 
-### Generasi 9 Grafik Analisis Ilmiah
+### Generasi 7 Grafik Analisis Ilmiah
 
 Hasilkan seluruh visualisasi siap pakai untuk paper/laporan IEEE (resolusi 150 DPI):
 
@@ -467,7 +478,6 @@ Get-Content results\bench_matrix.log -Tail 10
 
 - **Jangan pakai `podman-compose` langsung** → `aardvark-dns` gagal start. Pakai `scripts/cluster.py`.
 - **Jangan pakai `--memory` / `--cpus`** pada `podman run` → `podman exec` gagal.
-- **Jangan pakai `--memory`/`--cpus`** → gunakan `--cgroups=disabled`.
 - **Jangan andalkan port publish** (`-p 9090:9090` tidak reachable dari host) → pakai SSH tunnel.
 - **Jangan pakai DNS nama container** (`master`, `datanode1`) → pakai static IP + `--add-host`.
 
