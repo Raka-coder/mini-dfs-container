@@ -28,7 +28,9 @@ services:
     ports: ["3000:3000"]
 
 networks:
-  dfsnet: {}
+  dfsnet:
+    external: true
+    name: dfsnet
 
 volumes:
   prometheus_data:
