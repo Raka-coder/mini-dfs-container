@@ -12,7 +12,7 @@
 
 ## Abstrak
 
-Sistem berkas terdistribusi (DFS) merupakan komponen kunci dalam komputasi awan dan kluster data. Makalah ini menyajikan DFS-X, implementasi mini DFS berbasis antarmuka baris perintah (CLI) yang dibangun dengan Python 3.12, gRPC streaming, dan container Podman. Sistem terdiri atas satu node master dan tiga node data dengan faktor replikasi (RF) 2 dan anti-affinity, serta modul monitoring Prometheus/Grafana. Pengujian dilakukan terhadap 100 berkas berukuran 50 MiB untuk mengukur speedup, efisiensi, throughput, dan latensi pada variasi jumlah worker (1, 2, 4, 8), serta skalabilitas pada 2, 4, 8, dan 16 node. Uji toleransi kegagalan mencakup enam skenario (F1–F6) yang seluruhnya lulus. Hasil menunjukkan throughput unggah rata-rata 29,9–32,7 MiB/s dan unduh 101,0–117,6 MiB/s pada tiga node, dengan latensi per berkas 1,42 s (unggah) dan 0,42 s (unduh). Skalabilitas pada 2 hingga 16 node menunjukkan penurunan throughput dari 40,2 menjadi 18,3 MiB/s akibat fan-out RPC pada VM berkapasitas 2 GiB. Seluruh metrik, grafik, dan hasil uji tersedia di repositori dengan 13 unit test yang lulus.
+Sistem berkas terdistribusi (DFS) adalah komponen kunci dalam komputasi awan dan kluster data. Makalah ini menyajikan DFS-X, implementasi mini DFS berbasis antarmuka baris perintah (CLI) yang dibangun dengan Python 3.12, gRPC streaming, dan container Podman. Sistem terdiri atas satu node master dan tiga node data dengan faktor replikasi (RF) 2 dan anti-affinity, serta modul monitoring Prometheus/Grafana. Pengujian dilakukan terhadap 100 berkas berukuran 50 MiB untuk mengukur speedup, efisiensi, throughput, dan latensi pada variasi jumlah worker (1, 2, 4, 8), serta skalabilitas pada 2, 4, 8, dan 16 node. Uji toleransi kegagalan mencakup enam skenario (F1–F6) yang seluruhnya lulus. Hasil menunjukkan throughput unggah rata-rata 29,9–32,7 MiB/s dan unduh 101,0–117,6 MiB/s pada tiga node, dengan latensi per berkas 1,42 s (unggah) dan 0,42 s (unduh). Skalabilitas pada 2 hingga 16 node menunjukkan penurunan throughput dari 40,2 menjadi 18,3 MiB/s akibat fan-out RPC pada VM berkapasitas 2 GiB. Seluruh metrik, grafik, dan hasil uji tersedia di repositori dengan 13 unit test yang lulus.
 
 **Kata kunci:** distributed file system, gRPC, replikasi, fault tolerance, skalabilitas, Podman, Prometheus
 
@@ -60,7 +60,7 @@ Replikasi faktor (RF) menentukan jumlah salinan chunk. RF=2 berarti setiap chunk
 
 ### 2.3 gRPC Streaming
 
-gRPC menggunakan HTTP/2 dan Protocol Buffers. Streaming memungkinkan transfer data besar dalam frame kecil (1 MiB) tanpa memuat seluruh berkas ke memori. Incremental SHA-256 memverifikasi integritas per chunk. Channel di-cache per node (bukan per chunk) untuk efisiensi koneksi.
+gRPC menggunakan HTTP/2 dan Protocol Buffers. Streaming memfasilitasi transfer data besar dalam frame kecil (1 MiB) tanpa memuat seluruh berkas ke memori. Incremental SHA-256 memverifikasi integritas per chunk. Channel di-cache per node (bukan per chunk) untuk efisiensi koneksi.
 
 ### 2.4 Toleransi Kegagalan
 
