@@ -33,7 +33,8 @@ DFS-X Terminal adalah implementasi sistem berkas terdistribusi mini berbasis CLI
 10. [Pemeliharaan & Pembersihan Resource Disk](#-pemeliharaan--pembersihan-resource-disk)
 11. [Panduan Video Demo (Max 10 Menit)](#-panduan-video-demo-max-10-menit)
 12. [Troubleshooting Umum](#-troubleshooting-umum)
-13. [Kepatuhan & Aturan Teknis (Rules of Engagement)](#-kepatuhan--aturan-teknis-rules-of-engagement)
+13. [Cheat Sheet: PowerShell + Podman (Windows 10/11)](#-cheat-sheet-powershell--podman-windows-1011)
+14. [Kepatuhan & Aturan Teknis (Rules of Engagement)](#-kepatuhan--aturan-teknis-rules-of-engagement)
 
 ---
 
@@ -365,6 +366,127 @@ Struktur presentasi video (max 10 menit):
 - **RESOURCE_EXHAUSTED / DISK_LOW:** storage sisa 28 GB. Profil `full` = 100×50 MB (RF=2 → ~10 GB/run); gunakan profil `lite` untuk 8/16 node. Jalankan `rm --all` antar run. `DeleteFile` kini menghapus chunk di datanode (sebelumnya metadata saja).
 - **Master tidak reachable dari host:** port publish 50051 tidak berfungsi di VM ini; jalankan benchmark via `podman exec dfs-client python -m scripts.bench_matrix`.
 - **Protobuf version warning:** gencode 5.27.2 vs runtime 5.28.2 — warning, bukan error; abaikan.
+
+---
+
+## 📋 Cheat Sheet: PowerShell + Podman (Windows 10/11)
+
+Perintah Linux yang sering dipakai di tutorial **tidak berfungsi** di PowerShell. Gunakan padanan berikut.
+
+### A. Sintaks dasar PowerShell
+
+| Linux/bash | PowerShell yang benar | Catatan |
+|---|---|---|
+| `PYTHONPATH=proto python x.py` | `$env:PYTHONPATH="proto"; python x.py` | Env var inline tidak didukung |
+| `cmd1 && cmd2` | `cmd1; cmd2` | `&&` tidak ada di PS lama |
+| `cmd > /dev/null` | `cmd \| Out-Null` atau `cmd 2>&1 \| Out-Null` | `>` membuat file `null` |
+| `grep "pat" file` | `Select-String -Path file -Pattern "pat"` | |
+| `tail -n 5 file` | `Get-Content file -Tail 5` | |
+| `head -n 5 file` | `Get-Content file -Head 5` | |
+| `wc -l file` | `(Get-Content file).Count` | |
+| `for x in a b; do ...; done` | `foreach ($x in @("a","b")) { ... }` | |
+| `cmd1 \| tee file` | `cmd1 \| Tee-Object -FilePath file` | |
+| `export VAR=val` | `$env:VAR="val"` (sesi ini) / `[Environment]::SetEnvironmentVariable` | |
+
+### B. Podman di Windows (remote ke VM Linux)
+
+```powershell
+# Pastikan VM hidup
+podman machine start
+podman machine list
+
+# Lihat container
+podman ps
+podman ps -a --format "table {{.Names}}\t{{.Status}}"
+
+# Stop/start container
+podman stop dfs-dn1
+podman start dfs-dn1
+podman restart dfs-master
+
+# Log
+podman logs dfs-master 2>&1 | Select-String -Pattern "ERROR|NODE_" | Select-Object -Last 10
+
+# Exec ke container (PowerShell: jangan pakai backslash di path)
+podman exec dfs-client python -m client.cli status
+podman exec dfs-client python -m client.cli wait-ready --min-nodes 3 --timeout 60
+
+# Hapus container + volume
+podman rm -f dfs-master
+podman volume rm -f master_meta
+```
+
+### C. Akses monitoring (port publish tidak berfungsi di VM ini)
+
+```powershell
+# 1. Cari port SSH VM
+podman machine inspect | Select-String -Pattern "Port|IdentityPath"
+
+# 2. Buka tunnel (biarkan terminal ini terbuka)
+ssh -i "$env:USERPROFILE\.local\share\containers\podman\machine\machine" `
+  -p 54345 -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL `
+  -L 3000:10.90.0.31:3000 -L 9090:10.90.0.30:9090 -N user@localhost
+
+# 3. Akses di browser
+#    Grafana : http://localhost:3000
+#    Prometheus: http://localhost:9090
+```
+
+### D. Bind mount dari Windows ke container
+
+Path Windows **tidak** bisa langsung di-mount (resolve di VM). Gunakan path WSL:
+
+```powershell
+# SALAH:  -v C:\dfs-x\monitoring:/etc/grafana/provisioning:ro
+# BENAR:  -v /mnt/c/dfs-x/monitoring:/etc/grafana/provisioning:ro
+```
+
+### E. Env var + Python di PowerShell
+
+```powershell
+# Set env var untuk sesi ini
+$env:PYTHONPATH = "proto"
+$env:LOG_LEVEL = "DEBUG"
+
+# Jalankan pytest
+.\.venv\Scripts\python.exe -m pytest tests/ -q
+
+# Jalankan script dengan output ke file (background)
+Start-Process -FilePath ".\.venv\Scripts\python.exe" `
+  -ArgumentList "scripts\bench_matrix.py" `
+  -RedirectStandardOutput "results\bench_matrix.log" `
+  -RedirectStandardError "results\bench_matrix.err" `
+  -WorkingDirectory "C:\dfs-x" -WindowStyle Hidden
+
+# Polling
+Start-Sleep -Seconds 60
+Get-Content results\bench_matrix.log -Tail 10
+```
+
+### F. Hal yang TIDAK boleh dilakukan di VM ini
+
+- **Jangan pakai `podman-compose` langsung** → `aardvark-dns` gagal start. Pakai `scripts/cluster.py`.
+- **Jangan pakai `--memory` / `--cpus`** pada `podman run` → `podman exec` gagal.
+- **Jangan pakai `--memory`/`--cpus`** → gunakan `--cgroups=disabled`.
+- **Jangan andalkan port publish** (`-p 9090:9090` tidak reachable dari host) → pakai SSH tunnel.
+- **Jangan pakai DNS nama container** (`master`, `datanode1`) → pakai static IP + `--add-host`.
+
+### G. Verifikasi cepat
+
+```powershell
+# Cluster sehat?
+podman exec dfs-client python -m client.cli wait-ready --min-nodes 3 --timeout 60
+podman exec dfs-client python -m client.cli status
+
+# No print() rule
+.\.venv\Scripts\python.exe scripts\check_no_print.py
+
+# Unit test
+$env:PYTHONPATH="proto"; .\.venv\Scripts\python.exe -m pytest tests/ -q
+
+# Lint
+.\.venv\Scripts\python.exe -m ruff check client/ master/ tests/ scripts/
+```
 
 ---
 
