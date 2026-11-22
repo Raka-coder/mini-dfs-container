@@ -268,16 +268,66 @@ Grafik akan dihasilkan di direktori [results/plots/](file:///C:/dfs-x/results/pl
 
 ## 📈 Monitoring Stack (Prometheus & Grafana)
 
-Proyek ini menyertakan bonus monitoring stack dengan dashboard siap pakai:
+Proyek ini menyertakan bonus monitoring stack dengan dashboard siap pakai. Karena port publish
+tidak berfungsi di VM Podman Windows ini, gunakan **Metode Deploy Stabil** + SSH tunnel.
+
+### 1. Jalankan (Metode Deploy Stabil)
+
+Prometheus & Grafana harus berada di network `dfsnet` yang sama dengan cluster, dengan IP statis
+dan entri `/etc/hosts` (DNS dinonaktifkan). Image di-pull otomatis:
 
 ```bash
-# Jalankan Prometheus & Grafana
-podman-compose -p dfsx-mon -f docker-compose.monitoring.yml up -d
+podman rm -f dfs-prometheus dfs-grafana
+podman run -d --name dfs-prometheus --hostname dfs-prometheus --cgroups disabled \
+  --network dfsnet --ip 10.90.0.30 \
+  --add-host dfs-master:10.90.0.13 --add-host dfs-dn1:10.90.0.14 \
+  --add-host dfs-dn2:10.90.0.15 --add-host dfs-dn3:10.90.0.16 \
+  --add-host dfs-grafana:10.90.0.31 \
+  -v /mnt/c/dfs-x/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro \
+  -p 9090:9090 docker.io/prom/prometheus:v2.55.1 \
+  --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.retention.time=2h
+
+podman run -d --name dfs-grafana --hostname dfs-grafana --cgroups disabled \
+  --network dfsnet --ip 10.90.0.31 \
+  --add-host dfs-master:10.90.0.13 --add-host dfs-dn1:10.90.0.14 \
+  --add-host dfs-dn2:10.90.0.15 --add-host dfs-dn3:10.90.0.16 \
+  --add-host dfs-prometheus:10.90.0.30 \
+  -e GF_AUTH_ANONYMOUS_ENABLED=true -e GF_AUTH_ANONYMOUS_ORG_ROLE=Admin \
+  -e GF_ANALYTICS_REPORTING_ENABLED=false \
+  -v /mnt/c/dfs-x/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro \
+  -v /mnt/c/dfs-x/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro \
+  -p 3000:3000 docker.io/grafana/grafana:11.3.0
 ```
 
-- **Prometheus UI:** Akses di `http://localhost:9090`
-- **Grafana UI:** Akses di `http://localhost:3000` (tanpa password / anonymous viewer)
-- **Dashboard Otomatis:** Panel terisi otomatis memonitor status node ALIVE/DOWN, volume chunk per node, throughput upload/download, dan latensi RPC.
+Verifikasi (dari dalam container, karena port publish tidak berfungsi ke host):
+```bash
+podman exec dfs-prometheus wget -qO- http://localhost:9090/-/healthy
+podman exec dfs-grafana wget -qO- http://localhost:3000/api/health
+```
+
+### 2. Akses dari host (SSH tunnel)
+
+Port publish `9090`/`3000` tidak bisa dijangkau langsung dari host. Buka tunnel ke VM:
+
+```powershell
+ssh -i "$env:USERPROFILE\.local\share\containers\podman\machine\machine" -p 54345 `
+  -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL `
+  -L 3000:10.90.0.31:3000 -L 9090:10.90.0.30:9090 -N user@localhost
+```
+
+Biarkan terminal tunnel tetap terbuka, lalu akses di browser host:
+- **Prometheus UI:** `http://localhost:9090` (targets master + 3 datanode, semua UP)
+- **Grafana UI:** `http://localhost:3000` (anonymous Admin, dashboard `DFS-X` otomatis terprovisi)
+
+Target scrape di `monitoring/prometheus.yml` memakai nama kontainer aktual: `dfs-master:8000`,
+`dfs-dn1..3:8000` (bukan `master`/`datanode1`).
+
+### 3. Matikan
+
+```bash
+# tutup tunnel (Ctrl+C), lalu
+podman rm -f dfs-prometheus dfs-grafana
+```
 
 ---
 

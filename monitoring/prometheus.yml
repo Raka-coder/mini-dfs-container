@@ -3,7 +3,7 @@ global:
 scrape_configs:
   - job_name: master
     static_configs:
-      - targets: ["master:8000"]
+      - targets: ["dfs-master:8000"]
   - job_name: datanodes
     static_configs:
-      - targets: ["datanode1:8000", "datanode2:8000", "datanode3:8000"]
+      - targets: ["dfs-dn1:8000", "dfs-dn2:8000", "dfs-dn3:8000"]
