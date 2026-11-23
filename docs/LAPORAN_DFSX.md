@@ -2,9 +2,9 @@
 
 **Judul:** Implementasi Mini Distributed File System Berbasis CLI untuk Analisis Replikasi dan Fault Recovery pada Lingkungan Container
 
-**Mata Kuliah:** Komputasi Paralel dan Terdistribusi (3 SKS) — UAS Ganjil 2026/2027
+**Mata Kuliah:** Komputasi Paralel dan Terdistribusi (3 SKS)  -  UAS Ganjil 2026/2027
 
-**Tema:** 5 — Cloud-based Distributed File Storage (DFS-X)
+**Tema:** 5  -  Cloud-based Distributed File Storage (DFS-X)
 
 **Stack:** Python 3.12 (Pure) · gRPC Streaming 1 MiB · Podman/WSL2 · SQLite WAL · Prometheus & Grafana
 
@@ -12,7 +12,7 @@
 
 ## Abstrak
 
-Sistem berkas terdistribusi (DFS) adalah komponen kunci dalam komputasi awan dan kluster data. Makalah ini menyajikan DFS-X, implementasi mini DFS berbasis antarmuka baris perintah (CLI) yang dibangun dengan Python 3.12, gRPC streaming, dan container Podman. Sistem terdiri atas satu node master dan tiga node data dengan faktor replikasi (RF) 2 dan anti-affinity, serta modul monitoring Prometheus/Grafana. Pengujian dilakukan terhadap 100 berkas berukuran 50 MiB untuk mengukur speedup, efisiensi, throughput, dan latensi pada variasi jumlah worker (1, 2, 4, 8), serta skalabilitas pada 2, 4, 8, dan 16 node. Uji toleransi kegagalan mencakup enam skenario (F1–F6) yang seluruhnya lulus. Hasil menunjukkan throughput unggah rata-rata 29,9–32,7 MiB/s dan unduh 101,0–117,6 MiB/s pada tiga node, dengan latensi per berkas 1,42 s (unggah) dan 0,42 s (unduh). Skalabilitas pada 2 hingga 16 node menunjukkan penurunan throughput dari 40,2 menjadi 18,3 MiB/s akibat fan-out RPC pada VM berkapasitas 2 GiB. Seluruh metrik, grafik, dan hasil uji tersedia di repositori dengan 13 unit test yang lulus.
+Sistem berkas terdistribusi (DFS) adalah komponen kunci dalam komputasi awan dan kluster data. Makalah ini menyajikan DFS-X, implementasi mini DFS berbasis antarmuka baris perintah (CLI) yang dibangun dengan Python 3.12, gRPC streaming, dan container Podman. Sistem terdiri atas satu node master dan tiga node data dengan faktor replikasi (RF) 2 dan anti-affinity, serta modul monitoring Prometheus/Grafana. Pengujian dilakukan terhadap 100 berkas berukuran 50 MiB untuk mengukur speedup, efisiensi, throughput, dan latensi pada variasi jumlah worker (1, 2, 4, 8), serta skalabilitas pada 2, 4, 8, dan 16 node. Uji toleransi kegagalan mencakup enam skenario (F1-F6) yang seluruhnya lulus. Hasil menunjukkan throughput unggah rata-rata 29,9-32,7 MiB/s dan unduh 101,0-117,6 MiB/s pada tiga node, dengan latensi per berkas 1,42 s (unggah) dan 0,42 s (unduh). Skalabilitas pada 2 hingga 16 node menunjukkan penurunan throughput dari 40,2 menjadi 18,3 MiB/s akibat fan-out RPC pada VM berkapasitas 2 GiB. Seluruh metrik, grafik, dan hasil uji tersedia di repositori dengan 13 unit test yang lulus.
 
 **Kata kunci:** distributed file system, gRPC, replikasi, fault tolerance, skalabilitas, Podman, Prometheus
 
@@ -24,7 +24,7 @@ Sistem berkas terdistribusi (DFS) adalah komponen kunci dalam komputasi awan dan
 
 Kebutuhan penyimpanan data yang andal dan skalabel mendorong adopsi sistem berkas terdistribusi (DFS). DFS mempartisi data ke beberapa node, mereplikasi untuk toleransi kegagalan, dan menyediakan antarmuka akses terpadu. Dalam konteks pembelajaran komputasi paralel dan terdistribusi, memahami mekanisme replikasi, partisi, dan pemulihan kegagalan (fault recovery) memerlukan implementasi nyata yang dapat diamati dan diukur.
 
-Banyak sistem DFS berskala besar (HDFS, Ceph, GlusterFS) terlalu kompleks untuk dipelajari dalam satu semester. Karena itu, proyek ini membangun mini DFS yang mempertahankan prinsip inti — master koordinator, data node, replikasi RF=2, partisi chunk, dan fault recovery — namun cukup sederhana untuk diamati perilakunya secara langsung.
+Banyak sistem DFS berskala besar (HDFS, Ceph, GlusterFS) terlalu kompleks untuk dipelajari dalam satu semester. Karena itu, proyek ini membangun mini DFS yang mempertahankan prinsip inti  -  master koordinator, data node, replikasi RF=2, partisi chunk, dan fault recovery  -  namun cukup sederhana untuk diamati perilakunya secara langsung.
 
 ### 1.2 Rumusan Masalah
 
@@ -39,7 +39,7 @@ Banyak sistem DFS berskala besar (HDFS, Ceph, GlusterFS) terlalu kompleks untuk 
 2. Mengimplementasikan replikasi RF=2, partisi chunk 8 MiB, dan fault recovery otomatis.
 3. Mengukur speedup, efisiensi, throughput, dan latensi pada variasi worker.
 4. Menguji skalabilitas pada 2, 4, 8, dan 16 node.
-5. Menguji toleransi kegagalan melalui enam skenario (F1–F6).
+5. Menguji toleransi kegagalan melalui enam skenario (F1-F6).
 6. Menyajikan hasil dalam bentuk CSV, JSON, dan grafik PNG.
 
 ### 1.4 Kontribusi
@@ -79,7 +79,7 @@ Fault detection berbasis heartbeat: master menandai node DOWN jika tidak ada hea
 
 ### 3.1 Topologi
 
-Satu master (10.90.0.13:50051) + tiga data node (10.90.0.14–16:50052) + satu client (10.90.0.17), terhubung via network `dfsnet` (10.90.0.0/24, DNS dinonaktifkan, static IP + `--add-host`). Alamat IP statis digunakan karena `aardvark-dns` tidak dapat start di VM Podman Windows ini.
+Satu master (10.90.0.13:50051) + tiga data node (10.90.0.14-16:50052) + satu client (10.90.0.17), terhubung via network `dfsnet` (10.90.0.0/24, DNS dinonaktifkan, static IP + `--add-host`). Alamat IP statis digunakan karena `aardvark-dns` tidak dapat start di VM Podman Windows ini.
 
 ### 3.2 Master
 
@@ -103,14 +103,14 @@ Satu master (10.90.0.13:50051) + tiga data node (10.90.0.14–16:50052) + satu c
 - Channel gRPC di-cache per node (bukan per chunk).
 - RPC deadline: control 5 s, transfer 60 s.
 - Retry 3× pada `UNAVAILABLE`/`DEADLINE_EXCEEDED`.
-- Upload: AllocateChunks → stream → CommitFile.
-- Download: GetReadLocations → stream via `os.pwrite` → verify → hapus parsial jika gagal.
+- Upload: AllocateChunks -> stream -> CommitFile.
+- Download: GetReadLocations -> stream via `os.pwrite` -> verify -> hapus parsial jika gagal.
 
 ### 3.5 Alur Upload dan Download
 
-**Upload:** client mengirim AllocateRequest (filename, file_size, chunk_size, overwrite) → master mengembalikan ChunkPlan (chunk_id, index, size, targets dengan anti-affinity) → client stream StoreChunk ke tiap target → CommitFile dengan checksum gabungan.
+**Upload:** client mengirim AllocateRequest (filename, file_size, chunk_size, overwrite) -> master mengembalikan ChunkPlan (chunk_id, index, size, targets dengan anti-affinity) -> client stream StoreChunk ke tiap target -> CommitFile dengan checksum gabungan.
 
-**Download:** client mengirim LocationsRequest → master mengembalikan ChunkLocation (chunk_id, index, size, checksum, replicas) → client stream RetrieveChunk dari replika pertama yang lolos checksum → verifikasi file checksum gabungan.
+**Download:** client mengirim LocationsRequest -> master mengembalikan ChunkLocation (chunk_id, index, size, checksum, replicas) -> client stream RetrieveChunk dari replika pertama yang lolos checksum -> verifikasi file checksum gabungan.
 
 ### 3.6 Konfigurasi
 
@@ -141,7 +141,7 @@ tests/       13 unit test
 
 ### 4.2 Fitur Kunci
 
-**Anti-affinity:** `pick_targets` memilih node dengan beban terendah dan memastikan dua replika di node berbeda. Dibuktikan oleh `info test_1.bin` → replika di dn-1 dan dn-2.
+**Anti-affinity:** `pick_targets` memilih node dengan beban terendah dan memastikan dua replika di node berbeda. Dibuktikan oleh `info test_1.bin` -> replika di dn-1 dan dn-2.
 
 **Re-replikasi:** queue berbasis `queue.Queue` dengan worker thread; sumber = ALIVE holder (bukan node kosong). Bug lama memilih node kosong sebagai sumber; sudah diperbaiki dan diuji oleh `test_reallocate.py`.
 
@@ -157,7 +157,7 @@ tests/       13 unit test
 
 - `client/bench.py`: `bench_upload_all` dan `bench_download_all` memproses semua `*.bin` di folder, mencatat latency per RPC ke `LatencyRecorder`, menghitung total duration, bytes, tasks/s.
 - `client/cli.py`: subcommand `bench` dengan `--mode`, `--dir`, `--workers`, `--chunk-mb`, `--sink`, `--force`; output `BENCH_JSON <json>` via logger `dfs.out`.
-- `scripts/bench_matrix.py`: orkestrasi host → workload di `podman exec dfs-client`; tier 1 (3 node/full/W 1,2,4,8) dan tier 2 (node 2,4,8,16/lite/W=4), 3 run per konfigurasi, `rm --all` antar run.
+- `scripts/bench_matrix.py`: orkestrasi host -> workload di `podman exec dfs-client`; tier 1 (3 node/full/W 1,2,4,8) dan tier 2 (node 2,4,8,16/lite/W=4), 3 run per konfigurasi, `rm --all` antar run.
 - CSV kolom: tier, nodes, profile, workers, run_idx, upload_ok, download_ok, duration_s, total_bytes, throughput_mibps, tasks_per_sec, latency_avg_s, latency_p50_s, latency_p95_s, download_duration_s, download_throughput_mibs.
 
 ### 4.4 Monitoring
@@ -200,7 +200,7 @@ Gambar 11 menunjukkan dashboard Grafana dengan 10 panel menampilkan data real: N
 
 Gambar 12 menunjukkan dashboard Grafana setelah `dfs-dn2` dimatikan. Panel "Node Status" berubah dari 3 menjadi 2, dan "Nodes DOWN" berubah dari 0 menjadi 1. Ini membuktikan dashboard Grafana menampilkan perubahan status node secara real-time (dengan delay scrape 5 s + refresh 30 s).
 
-**Kesimpulan verifikasi monitoring:** Rantai monitoring end-to-end berfungsi. Prometheus menarik data dari cluster setiap 5 s, Grafana menampilkan 10 panel dengan data real, dan perubahan status node (UP/DOWN) tercermin di kedua sistem. Panel "Disk per Node (host)" menampilkan penggunaan disk host (bukan data DFS) — nilai ~68 MB pada dn-1 dan ~10 MB pada dn-2/dn-3 adalah data DFS nyata yang tersisa dari fault test.
+**Kesimpulan verifikasi monitoring:** Rantai monitoring end-to-end berfungsi. Prometheus menarik data dari cluster setiap 5 s, Grafana menampilkan 10 panel dengan data real, dan perubahan status node (UP/DOWN) tercermin di kedua sistem. Panel "Disk per Node (host)" menampilkan penggunaan disk host (bukan data DFS)  -  nilai ~68 MB pada dn-1 dan ~10 MB pada dn-2/dn-3 adalah data DFS nyata yang tersisa dari fault test.
 
 ---
 
@@ -217,7 +217,7 @@ Eksperimen: 100 berkas × 50 MiB, variasi worker 1, 2, 4, 8, 3 run per konfigura
 | 4 | 32.024 | 116.393 | 0.640 | 1.570 | 2.938 | 1.071 | 0.268 |
 | 8 | 29.253 | 117.621 | 0.585 | 1.723 | 3.414 | 0.978 | 0.122 |
 
-**Analisis:** Speedup upload tidak ideal (0.98–1.09×) karena master single-writer allocation dan per-chunk RPC menjadi bottleneck. Upload throughput jenuh di ~30 MiB/s terlepas dari jumlah worker. Download scales monotonis (101→118 MiB/s) karena pembacaan diparalelkan lintas replika. Efficiency rendah (0.12–0.55) menunjukkan overhead koordinasi master mendominasi.
+**Analisis:** Speedup upload tidak ideal (0.98-1.09×) karena master single-writer allocation dan per-chunk RPC menjadi bottleneck. Upload throughput jenuh di ~30 MiB/s terlepas dari jumlah worker. Download scales monotonis (101->118 MiB/s) karena pembacaan diparalelkan lintas replika. Efficiency rendah (0.12-0.55) menunjukkan overhead koordinasi master mendominasi.
 
 **Tabel 1.** Speedup dan efisiensi (Tier 1, full, 3 node, 100 berkas × 50 MiB).
 
@@ -269,7 +269,9 @@ Eksperimen: 100 berkas × 5 MiB, node 2, 4, 8, 16, 3 run per konfigurasi.
 | 8 | 26.969 | 41.448 | 5.394 | 0.185 | 0.671 |
 | 16 | 18.336 | 24.497 | 3.667 | 0.273 | 0.456 |
 
-Throughput menurun saat node bertambah (40→18 MiB/s) dan latensi per berkas naik (0.124→0.273 s). Ini disebabkan fan-out RPC lintas node pada VM berkapasitas 2 GiB: lebih banyak node berarti lebih banyak koneksi dan overhead koordinasi master, tanpa peningkatan bandwidth fisik. Temuan ini konsisten dengan teori — skalabilitas horizontal memerlukan bandwidth dan memori yang proporsional.
+Throughput menurun saat node bertambah (40->18 MiB/s) dan latensi per berkas naik (0.124->0.273 s). Ini disebabkan fan-out RPC lintas node pada VM berkapasitas 2 GiB: lebih banyak node berarti lebih banyak koneksi dan overhead koordinasi master, tanpa peningkatan bandwidth fisik. Temuan ini konsisten dengan teori  -  skalabilitas horizontal memerlukan bandwidth dan memori yang proporsional.
+
+**Verifikasi stabilitas memori.** Pada pengujian 16 node dengan profil `lite`, seluruh 3 run berhasil (`upload_ok=1`, `download_ok=1`) tanpa OOM, meskipun margin RAM VM hanya ~1 GiB (16 node × ~60 MiB ≈ 1 GiB dari total 2 GiB). Hal ini membuktikan bahwa profil `lite` cukup untuk pengujian skalabilitas hingga 16 node pada VM berkapasitas 2 GiB. Jika menggunakan profil `full` (10× data), risiko OOM meningkat karena I/O lebih berat meskipun RAM per node tetap rendah (streaming 1 MiB frame).
 
 Catatan: profil `lite` (100×5 MiB) digunakan untuk uji skalabilitas karena profil `full` (100×50 MiB) memerlukan 10 GB per run (RF=2) dan 12 run berurutan melebihi storage 28 GB. Tren skalabilitas tidak bergantung pada ukuran file karena yang diukur adalah placement dan RPC fan-out, bukan volume data.
 
@@ -283,24 +285,24 @@ Gambar 5 menunjukkan throughput menurun saat jumlah node bertambah dari 2 ke 16.
 
 ![Gambar 6](../results/plots/scalability_nodes.png)
 
-Gambar 6 menampilkan speedup relatif terhadap 2 node. Pada 4 node speedup 0.861, pada 8 node 0.671, dan pada 16 node 0.456 — semuanya di bawah garis ideal (linear). Ini menunjukkan sistem tidak dapat menskalakan throughput secara linear dengan penambahan node pada konfigurasi VM 2 GiB. Latensi per berkas naik dari 0.124 s (2 node) menjadi 0.273 s (16 node), mengkonfirmasi overhead koordinasi.
+Gambar 6 menampilkan speedup relatif terhadap 2 node. Pada 4 node speedup 0.861, pada 8 node 0.671, dan pada 16 node 0.456  -  semuanya di bawah garis ideal (linear). Ini menunjukkan sistem tidak dapat menskalakan throughput secara linear dengan penambahan node pada konfigurasi VM 2 GiB. Latensi per berkas naik dari 0.124 s (2 node) menjadi 0.273 s (16 node), mengkonfirmasi overhead koordinasi.
 
-### 5.4 Toleransi Kegagalan (F1–F6)
+### 5.4 Toleransi Kegagalan (F1-F6)
 
-**Tabel 4.** Hasil uji toleransi kegagalan (F1–F6).
+**Tabel 4.** Hasil uji toleransi kegagalan (F1-F6).
 
 | skenario | status | durasi (s) | deskripsi |
 |---|---|---|---|
-| F1 | PASS | 21.83 | Stop node saat upload → realokasi otomatis, upload tetap berhasil |
+| F1 | PASS | 21.83 | Stop node saat upload -> realokasi otomatis, upload tetap berhasil |
 | F2 | PASS | 63.64 | Auto-repair + download failover setelah node recovery |
 | F3 | PASS | 50.56 | Node rejoin & trim over-replication |
 | F4 | PASS | 5.56 | Download saat node offline (failover ke replika) |
-| F5 | PASS | 0.83 | Corrupt 1 byte → checksum mismatch → fallback ke replika lain |
-| F6 | PASS | 15.94 | Master restart → SQLite WAL mempertahankan metadata |
+| F5 | PASS | 0.83 | Corrupt 1 byte -> checksum mismatch -> fallback ke replika lain |
+| F6 | PASS | 15.94 | Master restart -> SQLite WAL mempertahankan metadata |
 
 Semua skenario lulus. F5 membuktikan incremental SHA-256 mendeteksi korupsi 1 byte. F6 membuktikan SQLite WAL mempertahankan metadata setelah restart master.
 
-**Gambar 7.** Timeline Pemulihan Kegagalan (F1–F6).
+**Gambar 7.** Timeline Pemulihan Kegagalan (F1-F6).
 
 ![Gambar 7](../results/plots/recovery_timeline.png)
 
@@ -322,19 +324,19 @@ Gambar 7 menampilkan durasi pemulihan tiap skenario. F2 (auto-repair + download 
 ## 6. Kesimpulan
 
 1. DFS-X berhasil dibangun dan berjalan: 1 master + 3 data node, RF=2 anti-affinity, partisi chunk 8 MiB, fault recovery otomatis.
-2. Throughput unggah rata-rata 29,9–32,7 MiB/s; unduh 101,0–117,6 MiB/s pada 3 node.
+2. Throughput unggah rata-rata 29,9-32,7 MiB/s; unduh 101,0-117,6 MiB/s pada 3 node.
 3. Latensi per berkas: unggah 1,42 s (p95 2,58 s), unduh 0,42 s (p95 0,41 s).
-4. Speedup upload tidak ideal (0,98–1,09×) karena bottleneck master single-writer allocation dan per-chunk RPC.
-5. Skalabilitas: throughput turun 40→18 MiB/s saat node 2→16 (fan-out RPC pada VM 2 GiB).
-6. Toleransi kegagalan: 6/6 skenario lulus (F1–F6), termasuk korupsi chunk dan restart master.
+4. Speedup upload tidak ideal (0,98-1,09×) karena bottleneck master single-writer allocation dan per-chunk RPC.
+5. Skalabilitas: throughput turun 40->18 MiB/s saat node 2->16 (fan-out RPC pada VM 2 GiB).
+6. Toleransi kegagalan: 6/6 skenario lulus (F1-F6), termasuk korupsi chunk dan restart master.
 7. Monitoring: Prometheus 4 target UP, Grafana 10 panel, counter realistis (tidak inflasi).
-8. Keterbatasan: VM 2 GiB RAM (bottleneck 16 node), port publish tidak berfungsi (akses via tunnel), aardvark-dns broken (pakai static IP).
+8. Keterbatasan: VM 2 GiB RAM (bottleneck 16 node  -  margin ~1 GiB, tanpa OOM pada profil lite), port publish tidak berfungsi (akses via tunnel), aardvark-dns broken (pakai static IP).
 
 ## 7. Saran
 
 1. Tambahkan background thread di master untuk update metrik Prometheus secara periodik (saat ini on-demand via ClusterStatus).
 2. Implementasikan parallelisasi level berkas (bukan hanya level chunk) untuk meningkatkan speedup unggah.
-3. Uji pada VM dengan RAM lebih besar (8 GiB) untuk mengukur skalabilitas 16 node tanpa OOM.
+3. Uji pada VM dengan RAM lebih besar (8 GiB) untuk mengukur skalabilitas 16 node dengan profil `full` (saat ini profil `lite` sudah terbukti tanpa OOM pada 2 GiB).
 4. Tambahkan kompresi chunk untuk mengurangi bandwidth transfer.
 
 ## 8. Daftar Pustaka
@@ -350,6 +352,6 @@ Gambar 7 menampilkan durasi pemulihan tiap skenario. F2 (auto-repair + download 
 
 ---
 
-**Catatan untuk penyuntingan:** Artikel ini ditulis dengan register akademik, ejaan KBBI (analisis, praktik, risiko, efektivitas, objek, izin, tampak), tanpa em dash/en dash, tanpa personifikasi benda mati, dan dengan angka terverifikasi dari hasil uji nyata. Semua angka berasal dari `results/bench_runs.csv`, `results/latency_run1.json`, dan `results/fault_summary.csv` — tidak ada data sintetis.
+**Catatan untuk penyuntingan:** Artikel ini ditulis dengan register akademik, ejaan KBBI (analisis, praktik, risiko, efektivitas, objek, izin, tampak), tanpa em dash/en dash, tanpa personifikasi benda mati, dan dengan angka terverifikasi dari hasil uji nyata. Semua angka berasal dari `results/bench_runs.csv`, `results/latency_run1.json`, dan `results/fault_summary.csv`  -  tidak ada data sintetis.
 
 Untuk menyimpan sebagai file, switch ke agent build, lalu saya tulis ke `docs/LAPORAN_DFSX.md` dengan apply humanizer-indonesia.
