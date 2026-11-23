@@ -166,6 +166,42 @@ tests/       13 unit test
 - Grafana 10 panel: Node Status, Nodes DOWN, Lost Chunks, Under-Replicated, DataNode Throughput, Disk per Node (host), Chunks per Node, Rereplications, RPC Latency, RPC Calls.
 - Akses via SSH tunnel (port publish tidak berfungsi di VM ini).
 
+### 4.5 Verifikasi Monitoring (Screenshots)
+
+Untuk membuktikan bahwa Prometheus dan Grafana benar-benar menarik data dari cluster, dilakukan uji coba berikut: (1) cek image container, (2) matikan salah satu node data (dfs-dn2) lalu amati perubahan di Prometheus dan Grafana, (3) hidupkan kembali node tersebut dan amati pemulihan.
+
+**Gambar 8.** Image container yang digunakan (`localhost/dfsx:latest`).
+
+![Gambar 8](../results/monitoring/container-image-show.png)
+
+Gambar 8 menunjukkan image container `localhost/dfsx:latest` yang dibangun dari `Dockerfile` dengan base `python:3.12-slim`. Image ini memuat seluruh komponen (master, datanode, client) dan digunakan untuk semua node.
+
+**Gambar 9.** Prometheus saat cluster sehat (semua target UP).
+
+![Gambar 9](../results/monitoring/prometheus-up-test.png)
+
+Gambar 9 menunjukkan Prometheus dengan 4 target (master + 3 datanode) berstatus `UP`. Metrik `dfs_nodes_alive` bernilai 3.
+
+**Gambar 10.** Prometheus setelah node dfs-dn2 dimatikan.
+
+![Gambar 10](../results/monitoring/prometheus-down-test.png)
+
+Gambar 10 menunjukkan Prometheus setelah `dfs-dn2` dimatikan. Target `dfs-dn2:8000` berubah menjadi `DOWN`, dan `dfs_nodes_alive` turun dari 3 menjadi 2. Ini membuktikan Prometheus menarik data secara real-time dari cluster.
+
+**Gambar 11.** Grafana saat cluster sehat (dashboard menampilkan data).
+
+![Gambar 11](../results/monitoring/grafana-up-test.png)
+
+Gambar 11 menunjukkan dashboard Grafana dengan 10 panel menampilkan data real: Node Status = 3, Nodes DOWN = 0, Under-Replicated = 0, Storage per Node menampilkan penggunaan disk per node.
+
+**Gambar 12.** Grafana setelah node dfs-dn2 dimatikan (panel berubah).
+
+![Gambar 12](../results/monitoring/grafana-down-test.png)
+
+Gambar 12 menunjukkan dashboard Grafana setelah `dfs-dn2` dimatikan. Panel "Node Status" berubah dari 3 menjadi 2, dan "Nodes DOWN" berubah dari 0 menjadi 1. Ini membuktikan dashboard Grafana menampilkan perubahan status node secara real-time (dengan delay scrape 5 s + refresh 30 s).
+
+**Kesimpulan verifikasi monitoring:** Rantai monitoring end-to-end berfungsi. Prometheus menarik data dari cluster setiap 5 s, Grafana menampilkan 10 panel dengan data real, dan perubahan status node (UP/DOWN) tercermin di kedua sistem. Panel "Disk per Node (host)" menampilkan penggunaan disk host (bukan data DFS) — nilai ~68 MB pada dn-1 dan ~10 MB pada dn-2/dn-3 adalah data DFS nyata yang tersisa dari fault test.
+
 ---
 
 ## 5. Pengujian dan Analisis Performansi
