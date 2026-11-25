@@ -8,33 +8,66 @@ DFS-X Terminal adalah implementasi sistem berkas terdistribusi mini berbasis CLI
 
 ---
 
+## 🎯 Project Overview
+
+DFS-X adalah **Mini Distributed File System** yang mensimulasikan konsep distributed file storage dengan koordinasi master-worker, replikasi, dan fault recovery. Sistem ini dibangun untuk memenuhi tugas UAS Komputasi Paralel dan Terdistribusi (Tema 5).
+
+**Konsep utama:**
+
+```text
+File
+  ↓
+Chunking (partisi ke chunk 8 MiB)
+  ↓
+Distributed Storage (chunk tersebar ke DataNode)
+  ↓
+Replication (RF=2, anti-affinity)
+  ↓
+Fault Detection (heartbeat 2s / timeout 10s)
+  ↓
+Recovery / Failover (re-replikasi otomatis)
+```
+
+Tujuan sistem adalah menunjukkan bagaimana file dapat tetap tersedia ketika sebagian node mengalami kegagalan, serta menganalisis performa (speedup, efisiensi, throughput, latensi) dan skalabilitas (2 hingga 16 node).
+
+---
+
 ## 📋 Daftar Isi
 
-1. [Fitur Utama & Arsitektur](#-fitur-utama--arsitektur)
-2. [Topologi Cluster](#-topologi-cluster)
-3. [Prasyarat Sistem](#-prasyarat-sistem)
-4. [Panduan Mulai Cepat (Quickstart)](#-panduan-mulai-cepat-quickstart)
-   - [Clone Repository](#1-clone-repository)
-   - [Persiapan Lingkungan Virtual & Dependensi](#2-persiapan-lingkungan-virtual--dependensi)
-   - [Kompilasi Protobuf gRPC](#3-kompilasi-protobuf-grpc)
-   - [Build Container Image](#4-build-container-image)
-5. [Menjalankan Cluster DFS-X](#-menjalankan-cluster-dfs-x)
-   - [Menjalankan Cluster Default (1 Master + 3 DataNodes + 1 Client)](#menjalankan-cluster-default-1-master--3-datanodes--1-client)
-   - [Memeriksa Status & Kesiapan Cluster](#memeriksa-status--kesiapan-cluster)
-6. [Operasi CLI (Upload, Download, Verifikasi)](#-operasi-cli-upload-download-verifikasi)
-   - [Generate Dataset Pengujian](#generate-dataset-pengujian)
-   - [Upload & Download Berkas](#upload--download-berkas)
-   - [Pemeriksaan Metadata & Verifikasi Integritas](#pemeriksaan-metadata--verifikasi-integritas)
-7. [Pengujian Toleransi Kegagalan (Fault Tolerance F1–F6)](#-pengujian-toleransi-kegagalan-fault-tolerance-f1f6)
-8. [Benchmarking & Skalabilitas (2 hingga 16 Node)](#-benchmarking--skalabilitas-2-hingga-16-node)
-   - [Eksekusi Matriks Benchmark](#eksekusi-matriks-benchmark)
-   - [Generasi 7 Grafik Analisis Ilmiah](#generasi-9-grafik-analisis-ilmiah)
-9. [Monitoring Stack (Prometheus & Grafana)](#-monitoring-stack-prometheus--grafana)
-10. [Pemeliharaan & Pembersihan Resource Disk](#-pemeliharaan--pembersihan-resource-disk)
-11. [Panduan Video Demo (Max 10 Menit)](#-panduan-video-demo-max-10-menit)
-12. [Troubleshooting Umum](#-troubleshooting-umum)
-13. [Cheat Sheet: PowerShell + Podman (Windows 10/11)](#-cheat-sheet-powershell--podman-windows-1011)
-14. [Kepatuhan & Aturan Teknis (Rules of Engagement)](#-kepatuhan--aturan-teknis-rules-of-engagement)
+1. [Project Overview](#-project-overview)
+2. [Fitur Utama & Arsitektur](#-fitur-utama--arsitektur)
+3. [Topologi Cluster](#-topologi-cluster)
+4. [Distributed File Model](#-distributed-file-model)
+5. [Replication](#-replication)
+6. [Chunk Placement](#-chunk-placement)
+7. [Communication Layer](#-communication-layer)
+8. [Upload Flow](#-upload-flow)
+9. [Download Flow](#-download-flow)
+10. [Data Integrity](#-data-integrity)
+11. [Failure Detection](#-failure-detection)
+12. [Fault Recovery](#-fault-recovery)
+13. [Prasyarat Sistem](#-prasyarat-sistem)
+14. [Panduan Mulai Cepat (Quickstart)](#-panduan-mulai-cepat-quickstart)
+15. [Menjalankan Cluster DFS-X](#-menjalankan-cluster-dfs-x)
+16. [Operasi CLI (Upload, Download, Verifikasi)](#-operasi-cli-upload-download-verifikasi)
+17. [Pengujian Toleransi Kegagalan (Fault Tolerance F1-F6)](#-pengujian-toleransi-kegagalan-fault-tolerance-f1f6)
+18. [Performance Metrics](#-performance-metrics)
+19. [Performance Evaluation](#-performance-evaluation)
+20. [Scalability Experiment](#-scalability-experiment)
+21. [Interpretasi Hasil](#-interpretasi-hasil)
+22. [Benchmarking & Skalabilitas (2 hingga 16 Node)](#-benchmarking--skalabilitas-2-hingga-16-node)
+23. [Monitoring Stack (Prometheus & Grafana)](#-monitoring-stack-prometheus--grafana)
+24. [Experimental Limitations](#-experimental-limitations)
+25. [Compliance Tema 5](#-compliance-tema-5)
+26. [Evidence & Results](#-evidence--results)
+27. [Final Project Summary](#-final-project-summary)
+28. [Project Structure](#-project-structure)
+29. [Testing](#-testing)
+30. [Pemeliharaan & Pembersihan Resource Disk](#-pemeliharaan--pembersihan-resource-disk)
+31. [Panduan Video Demo (Max 10 Menit)](#-panduan-video-demo-max-10-menit)
+32. [Troubleshooting Umum](#-troubleshooting-umum)
+33. [Cheat Sheet: PowerShell + Podman (Windows 10/11)](#-cheat-sheet-powershell--podman-windows-1011)
+34. [Kepatuhan & Aturan Teknis (Rules of Engagement)](#-kepatuhan--aturan-teknis-rules-of-engagement)
 
 ---
 
@@ -70,6 +103,225 @@ graph TD
     Prometheus -.->|"Scrape (:8000)"| DN1
     Grafana --> Prometheus
 ```
+
+---
+
+## 📂 Distributed File Model
+
+File tidak disimpan sebagai satu objek besar. File dibagi menjadi chunk yang tersebar ke DataNode.
+
+```text
+example.bin (50 MiB)
+│
+├── Chunk 0 (8 MiB)  → DN1, DN3
+├── Chunk 1 (8 MiB)  → DN2, DN1
+├── Chunk 2 (8 MiB)  → DN3, DN2
+├── Chunk 3 (8 MiB)  → DN1, DN3
+├── Chunk 4 (8 MiB)  → DN2, DN1
+├── Chunk 5 (8 MiB)  → DN3, DN2
+└── Chunk 6 (2 MiB)  → DN1, DN3
+```
+
+Setiap chunk memiliki replica di DataNode berbeda (anti-affinity). Hubungan:
+- **Partitioning/Chunking** → membagi file besar ke unit kecil yang dapat didistribusikan.
+- **Replication** → setiap chunk disalin (RF=2) untuk ketersediaan.
+- **Availability** → file tetap dapat diakses selama minimal 1 replika hidup.
+- **Recovery** → jika replika hilang, master menyalin dari replika ALIVE ke node lain.
+
+---
+
+## 🔁 Replication
+
+Konfigurasi utama menggunakan **Replication Factor (RF) = 2**. Artinya setiap chunk memiliki dua salinan pada DataNode yang berbeda.
+
+**Anti-affinity:**
+
+```text
+Valid (replika di node berbeda):
+Chunk A
+├── DN1
+└── DN2
+
+Tidak diinginkan (replika di node sama):
+Chunk A
+├── DN1
+└── DN1
+```
+
+Manfaat anti-affinity: kegagalan satu node tidak menghilangkan semua salinan chunk. Master memilih node target dengan beban terendah (`pick_targets`) dan memastikan dua replika tidak berada di node yang sama.
+
+---
+
+## 📍 Chunk Placement
+
+Master menentukan lokasi chunk berdasarkan mekanisme alokasi:
+
+```text
+Client
+   │
+   │ AllocateChunks (filename, file_size, chunk_size, overwrite)
+   ▼
+Master (pick_targets: pilih node beban terendah, anti-affinity)
+   │
+   ├──────► DN1 (replika 1)
+   │
+   └──────► DN3 (replika 2)
+```
+
+Master mengembalikan `ChunkPlan` berisi `chunk_id`, `index`, `size`, dan `targets` (node_id + address). Client kemudian stream data ke tiap target.
+
+---
+
+## 📡 Communication Layer
+
+- **Protokol:** gRPC (HTTP/2) + Protocol Buffers.
+- **Streaming:** StoreChunk / RetrieveChunk menggunakan stream 1 MiB frame.
+- **Deadline:** control RPC 5 s, transfer RPC 60 s.
+- **Retry:** 3× pada `UNAVAILABLE`/`DEADLINE_EXCEEDED`.
+- **Channel:** di-cache per node (bukan per chunk) untuk efisiensi koneksi.
+- **Frame size:** `FRAME = 1 << 20` (1 MiB), didefinisikan di `common/grpc_util.py`.
+
+Streaming memungkinkan transfer data besar tanpa memuat seluruh berkas ke memori. Incremental SHA-256 memverifikasi integritas per frame.
+
+---
+
+## ⬆️ Upload Flow
+
+```text
+Client
+  │
+  │ 1. AllocateChunks (filename, file_size, chunk_size, overwrite)
+  ▼
+Master
+  │
+  │ 2. ChunkPlan (chunk_id, index, size, targets dengan anti-affinity)
+  ▼
+Client
+  │
+  │ 3. Stream StoreChunk (frame 1 MiB) ke tiap target
+  ▼
+DataNode (replika 1) + DataNode (replika 2)
+  │
+  │ 4. StoreChunk response (ok, checksum)
+  ▼
+Client
+  │
+  │ 5. ReallocateChunk (jika replika gagal)
+  ▼
+Master
+  │
+  │ 6. CommitFile (upload_id, filename, file_checksum, chunks)
+  ▼
+Master (metadata + SQLite WAL)
+  │
+  │ 7. CommitResponse (ok, under_replicated)
+  ▼
+Upload selesai (UPLOAD_COMMIT)
+```
+
+Langkah aktual:
+1. Client mengirim `AllocateRequest`.
+2. Master mengembalikan `ChunkPlan` dengan target anti-affinity.
+3. Client stream `StoreChunk` ke tiap target (frame 1 MiB, incremental SHA-256).
+4. Jika replika gagal (node mati), `ReallocateChunk` memilih node lain.
+5. Client mengirim `CommitFile` dengan checksum gabungan.
+6. Master menyimpan metadata di SQLite WAL dan mengembalikan `CommitResponse`.
+7. Upload selesai, log `UPLOAD_COMMIT`.
+
+---
+
+## ⬇️ Download Flow
+
+```text
+Client
+  │
+  │ 1. GetReadLocations (filename)
+  ▼
+Master
+  │
+  │ 2. ChunkLocation (chunk_id, index, size, checksum, replicas)
+  ▼
+Client
+  │
+  ├──────► Replica A (RetrieveChunk stream)
+  │
+  └──────► Replica B (fallback jika A gagal/checksum mismatch)
+  │
+  │ 3. os.pwrite per chunk (offset berurutan)
+  ▼
+Client (verifikasi file checksum gabungan)
+  │
+  │ 4. Hapus parsial jika gagal
+  ▼
+Download selesai (DOWNLOAD_OK)
+```
+
+Client membaca dari replika pertama yang lolos checksum. Jika gagal atau checksum mismatch, fallback ke replika berikutnya. Setelah semua chunk terkumpul, verifikasi file checksum gabungan (SHA-256 gabungan per chunk).
+
+---
+
+## 🔐 Data Integrity
+
+Checksum bertingkat:
+
+```text
+Frame (1 MiB) → SHA-256 per frame
+   ↓
+Chunk → SHA-256 gabungan per chunk (combine_checksums)
+   ↓
+File → SHA-256 gabungan per berkas
+```
+
+- **Per frame:** incremental SHA-256 saat streaming.
+- **Per chunk:** checksum gabungan dari frame-frame.
+- **Per berkas:** checksum gabungan dari chunk-chunk.
+- **Verifikasi:** saat upload, master membandingkan checksum chunk dari client dengan yang disimpan. Saat download, client membandingkan checksum chunk dari datanode dengan metadata.
+- **Fallback:** jika checksum mismatch, client mencoba replika berikutnya.
+
+**Uji korupsi (F5):** modifikasi 1 byte chunk di disk → deteksi `CHECKSUM_MISMATCH` → fallback ke replika lain → download tetap berhasil.
+
+---
+
+## 🔍 Failure Detection
+
+```text
+DN1 ── heartbeat (2s) ──► Master
+DN2 ── heartbeat (2s) ──► Master
+DN3 ── heartbeat (2s) ──► Master
+```
+
+- DataNode mengirim heartbeat tiap 2 s (`HEARTBEAT_INTERVAL_S`).
+- Master menandai node DOWN jika tidak ada heartbeat dalam 10 s (`HEARTBEAT_TIMEOUT_S`).
+- Master scan tiap 2 s (`SCAN_INTERVAL_S`).
+- Saat node DOWN, master menandai chunk under-replicated dan memasukkan ke replication queue.
+
+---
+
+## 🔄 Fault Recovery
+
+```text
+Initial:
+Chunk A
+├── DN1
+└── DN2
+
+DN2 fails:
+Chunk A
+└── DN1 (under-replicated)
+
+Recovery (auto re-replicate):
+Chunk A
+├── DN1
+└── DN3 (replika baru)
+```
+
+- Master mendeteksi chunk under-replicated saat scan.
+- Replication queue memilih sumber = ALIVE holder (bukan node kosong).
+- Worker thread menyalin chunk dari sumber ke target (concurrency 2).
+- Setelah selesai, master menambahkan target ke `cm.replicas`.
+- Anti-affinity dijaga: target ≠ source.
+
+**Uji (F1–F6):** semua skenario lulus, termasuk stop node saat upload (realokasi on-the-fly), auto-repair, node rejoin, download saat offline, korupsi chunk, dan restart master (SQLite WAL).
 
 ---
 
@@ -245,36 +497,213 @@ Rekapitulasi waktu deteksi dan perbaikan akan tersimpan di `results/fault_summar
 
 ### Eksekusi Matriks Benchmark
 
-Untuk menguji performa throughput, latensi, speedup, dan efisiensi:
-
 ```bash
-# Jalankan benchmark Tier 1 (Quick verification pada cluster aktif)
-python -m scripts.bench_matrix --tier 1
+# Tier 1: baseline (full, 3 node, W 1/2/4/8) — ~40 menit
+python scripts/bench_matrix.py --tier 1
 
-# Jalankan pengujian skalabilitas (2, 3, 4, 8, 16 DataNodes)
-python scripts/gen_compose.py --nodes 16 --out docker-compose.gen.yml --dn-mem 128m --dn-cpus 0.25 --dn-workers 4
-podman-compose -p dfsx -f docker-compose.gen.yml up -d
-python -m scripts.bench_matrix --tier 2
+# Tier 2: skalabilitas (node 2/4/8/16, lite, W=4) — ~30 menit
+python scripts/bench_matrix.py --tier 2
+
+# Atau jalankan keduanya
+python scripts/bench_matrix.py --tier all
 ```
 
 ### Generasi 7 Grafik Analisis Ilmiah
-
-Hasilkan seluruh visualisasi siap pakai untuk paper/laporan IEEE (resolusi 150 DPI):
 
 ```bash
 python scripts/plots.py
 ```
 
-Grafik akan dihasilkan di direktori [results/plots/](file:///C:/dfs-x/results/plots/):
+Grafik dihasilkan di `results/plots/`:
 1. `speedup_vs_workers.png` ($S = T_{seq} / T_{par}$)
 2. `efficiency_vs_workers.png` ($E = S / P$)
-3. `throughput_vs_nodes.png` (Throughput agregat MiB/s)
+3. `throughput_vs_nodes.png` (Throughput agregat MiB/s vs node)
 4. `tasks_per_sec.png` (Throughput task per detik)
 5. `latency_per_op.png` (Distribusi rata-rata, p50, p95, p99)
 6. `scalability_nodes.png` (Skalabilitas node 2 s/d 16)
 7. `recovery_timeline.png` (Waktu deteksi failure & durasi re-replikasi)
-8. `storage_per_node.png` (Keseimbangan beban penyimpanan chunk)
-9. `access_time.png` (Perbandingan waktu akses sekuensial vs paralel)
+
+Hasil raw: `results/bench_runs.csv` (24 baris real). Ringkasan: `results/SUMMARY.md`.
+
+---
+
+## 📊 Performance Metrics
+
+Definisi metrik yang digunakan (sesuai tugas UAS):
+
+- **Speedup Ratio:** S = T_sekuensial / T_paralel
+- **Efficiency:** E = S / P, P = jumlah worker/node
+- **Throughput:** jumlah task selesai per detik (MiB/s atau task/s)
+- **Latency:** waktu rata-rata komunikasi antar node (avg, p50, p95, p99)
+- **Fault Tolerance Test:** simulasi 1 node gagal saat eksekusi
+- **Scalability:** uji performa dengan bertambahnya node (2, 4, 8, 16)
+
+---
+
+## 📈 Performance Evaluation
+
+### Tier 1 — Baseline (full workload, 3 node)
+
+Eksperimen: 100 berkas × 50 MiB, variasi worker 1, 2, 4, 8, 3 run per konfigurasi. Data mentah di `results/bench_runs.csv` (baris 1–12).
+
+| workers | upload MiB/s | download MiB/s | tasks/s | latency avg (s) | latency p95 (s) | speedup (upload) | efficiency |
+|---|---|---|---|---|---|---|---|
+| 1 | 29.897 | 100.998 | 0.598 | 1.694 | 3.372 | 1.000 | 1.000 |
+| 2 | 32.654 | 114.664 | 0.653 | 1.539 | 2.809 | 1.092 | 0.546 |
+| 4 | 32.024 | 116.393 | 0.640 | 1.570 | 2.938 | 1.071 | 0.268 |
+| 8 | 29.253 | 117.621 | 0.585 | 1.723 | 3.414 | 0.978 | 0.122 |
+
+**Analisis:** Speedup upload tidak ideal (0.98–1.09×) karena master single-writer allocation dan per-chunk RPC menjadi bottleneck. Upload throughput jenuh di ~30 MiB/s terlepas dari jumlah worker. Download scales monotonis (101→118 MiB/s) karena pembacaan diparalelkan lintas replika. Efficiency rendah (0.12–0.55) menunjukkan overhead koordinasi master mendominasi.
+
+### Scalability Experiment (Tier 2, lite, 4 worker)
+
+Eksperimen: 100 berkas × 5 MiB, node 2, 4, 8, 16, 3 run per konfigurasi. Data mentah di `results/bench_runs.csv` (baris 13–24).
+
+| nodes | upload MiB/s | download MiB/s | tasks/s | latency avg (s) | speedup (vs 2 node) |
+|---|---|---|---|---|---|
+| 2 | 40.169 | 82.842 | 8.034 | 0.124 | 1.000 |
+| 4 | 34.593 | 63.076 | 6.919 | 0.144 | 0.861 |
+| 8 | 26.969 | 41.448 | 5.394 | 0.185 | 0.671 |
+| 16 | 18.336 | 24.497 | 3.667 | 0.273 | 0.456 |
+
+Throughput menurun saat node bertambah (40→18 MiB/s) dan latensi per berkas naik (0.124→0.273 s). Ini disebabkan fan-out RPC lintas node pada VM berkapasitas 2 GiB: lebih banyak node berarti lebih banyak koneksi dan overhead koordinasi master, tanpa peningkatan bandwidth fisik. Temuan ini konsisten dengan teori — skalabilitas horizontal memerlukan bandwidth dan memori yang proporsional.
+
+**Verifikasi stabilitas memori.** Pada pengujian 16 node dengan profil `lite`, seluruh 3 run berhasil (`upload_ok=1`, `download_ok=1`) tanpa OOM, meskipun margin RAM VM hanya ~1 GiB (16 node × ~60 MiB ≈ 1 GiB dari total 2 GiB). Hal ini membuktikan bahwa profil `lite` cukup untuk pengujian skalabilitas hingga 16 node pada VM berkapasitas 2 GiB.
+
+Catatan: profil `lite` (100×5 MiB) digunakan untuk uji skalabilitas karena profil `full` (100×50 MiB) memerlukan 10 GB per run (RF=2) dan 12 run berurutan melebihi storage 28 GB. Tren skalabilitas tidak bergantung pada ukuran file karena yang diukur adalah placement dan RPC fan-out, bukan volume data.
+
+### Interpretasi Hasil
+
+1. **Speedup upload tidak ideal** (0.98–1.09×) karena bottleneck master single-writer allocation dan per-chunk RPC. Upload throughput jenuh di ~30 MiB/s terlepas dari jumlah worker.
+2. **Download scales monotonis** (101→118 MiB/s) karena pembacaan diparalelkan lintas replika.
+3. **Efficiency rendah** (0.12–0.55) menunjukkan overhead koordinasi master mendominasi.
+4. **Skalabilitas sub-linear**: throughput turun 40→18 MiB/s saat node 2→16 (fan-out RPC pada VM 2 GiB).
+5. **Latensi per berkas naik** 0.124→0.273 s saat node bertambah, mengkonfirmasi overhead koordinasi.
+6. **Fault tolerance:** 6/6 skenario lulus (F1–F6), termasuk korupsi chunk dan restart master.
+7. **Monitoring:** Prometheus 4 target UP, Grafana 10 panel, counter realistis (tidak inflasi).
+
+### Latency (representative W=4, full, 100 berkas)
+
+| operasi | avg (s) | p50 (s) | p95 (s) | p99 (s) | n |
+|---|---|---|---|---|---|
+| unggah | 1.4195 | 1.1745 | 2.5822 | 3.9535 | 100 |
+| unduh | 0.4197 | 0.3871 | 0.4102 | 2.5741 | 100 |
+
+Latency unggah lebih tinggi dari unduh karena unggah melibatkan alokasi chunk, streaming ke dua replika, dan commit; unduh hanya membaca dari replika pertama yang lolos checksum. p99 unduh (2.57 s) jauh lebih tinggi dari p95 (0.41 s) karena satu outlier (replika gagal, fallback ke replika kedua).
+
+---
+
+## 🧪 Experimental Limitations
+
+### Resource limitation
+
+Pengujian 16 DataNode dilakukan dalam lingkungan virtual machine sehingga resource CPU, RAM, storage, dan network menjadi faktor pembatas.
+
+### Lite scalability workload
+
+Tier 2 menggunakan profile `lite` (100×5 MiB), bukan workload full 100×50 MB. Tier 1 (full, 100×50 MiB) sudah membuktikan pengujian volume penuh.
+
+### Interpretation
+
+Hasil Tier 2 digunakan untuk menganalisis tren scalability pada workload yang feasible, bukan untuk menyatakan performa absolut pada workload produksi.
+
+### Environment dependency
+
+Hasil benchmark dapat dipengaruhi oleh resource VM, host machine, container runtime, storage, dan network.
+
+---
+
+## ✅ Compliance Tema 5
+
+| Tema 5 Requirement | Implementation | Status |
+|---|---|---|
+| 1 Master + 3 DataNode | Implemented | ✅ |
+| Replication | RF=2 | ✅ |
+| Partitioning | Chunk-based storage (8 MiB) | ✅ |
+| Fault Recovery | Automatic recovery / re-replication | ✅ |
+| Upload / Download | Implemented (gRPC streaming) | ✅ |
+| 100 × 50 MB baseline | Tier 1 (full profile) | ✅ |
+| Throughput | Benchmark (MiB/s, tasks/s) | ✅ |
+| Access time / latency | Benchmark (avg, p50, p95, p99) | ✅ |
+| Scalability 2/4/8/16 | Tier 2 (lite profile) | ✅ |
+| Monitoring (bonus) | Prometheus + Grafana 10 panel | ✅ |
+
+---
+
+## 📁 Evidence & Results
+
+Referensi hasil eksperimen:
+
+| File | Fungsi |
+|---|---|
+| `RESULTS.md` | Konsolidasi hasil validasi seluruh tahapan (FASE 1–5) |
+| `results/bench_runs.csv` | Raw measurement benchmark (24 baris real, 0 PENDING_RUN) |
+| `results/latency_run1.json` | Latency per operasi (avg, p50, p95, p99) untuk 100 berkas |
+| `results/fault_summary.csv` | Hasil fault tolerance F1–F6 (6/6 PASS) |
+| `results/SUMMARY.md` | Ringkasan throughput, latency, speedup, efficiency |
+| `results/plots/` | 7 grafik PNG (>10 KB, data-driven) |
+| `docs/evidence/` | Output verifikasi fase (phase1–5.md, smoke.md) |
+| `docs/LAPORAN_DFSX.md` | Artikel ilmiah (IEEE, 8 bab) dengan gambar & tabel |
+
+---
+
+## 🏁 Final Project Summary
+
+DFS-X mendemonstrasikan arsitektur penyimpanan berkas terdistribusi berbasis container dengan chunk-based storage, replikasi RF=2, verifikasi integritas SHA-256, deteksi kegagalan, failover, dan pemulihan otomatis. Sistem dievaluasi melalui pengujian fungsional, toleransi kegagalan (F1–F6), dan benchmark skalabilitas (2–16 node). Workload baseline menggunakan dataset penuh (100×50 MB) sedangkan eksperimen skalabilitas 2/4/8/16 node menggunakan workload ringan (100×5 MiB) karena keterbatasan resource VM.
+
+---
+
+## 📁 Project Structure
+
+```text
+mini-dfs-container/
+├── client/          # CLI, upload, download, bench, gendata
+├── common/          # checksum, config, grpc_util, logging_setup
+├── datanode/        # server, heartbeat
+├── master/          # server, state, store, placement, replication, failure
+├── monitoring/      # prometheus.yml, grafana provisioning & dashboards
+├── proto/           # dfs.proto + generated stubs
+├── scripts/         # cluster, bench_matrix, plots, fault_test, check_no_print
+├── tests/           # 13 unit test
+├── docs/            # evidence, prompts, LAPORAN_DFSX.md, DEMO_GUIDE.md
+├── results/         # bench_runs.csv, fault_summary.csv, latency_run1.json, plots/
+├── Dockerfile
+├── docker-compose.yml
+├── docker-compose.monitoring.yml
+├── requirements.txt
+├── README.md
+└── RESULTS.md
+```
+
+---
+
+## 🧪 Testing
+
+Pisahkan kategori pengujian:
+
+```text
+Functional / Smoke Test
+- gen-data --profile lite → upload f001.bin → info (anti-affinity) → verify
+
+Fault Tolerance Test
+- python -m scripts.fault_test → F1–F6 (6/6 PASS)
+- Hasil: results/fault_summary.csv
+
+Performance Benchmark
+- python scripts/bench_matrix.py --tier 1 → Tier 1 (full, 3 node, W 1/2/4/8)
+- Hasil: results/bench_runs.csv (baris 1–12)
+
+Scalability Benchmark
+- python scripts/bench_matrix.py --tier 2 → Tier 2 (lite, node 2/4/8/16)
+- Hasil: results/bench_runs.csv (baris 13–24)
+```
+
+Verifikasi cepat:
+```bash
+python scripts/check_no_print.py          # no print() rule
+python -m pytest tests/ -v               # 13/13 PASS
+ruff check client/ master/ tests/ scripts/
+```
 
 ---
 
