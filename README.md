@@ -479,7 +479,7 @@ podman exec dfs-client python -m client.cli rm f001.bin
 
 ## 🛡 Pengujian Toleransi Kegagalan (Fault Tolerance F1–F6)
 
-Pengujian skenario fault recovery otomatis dijalankan melalui modul [scripts/fault_test.py](file:///C:/dfs-x/scripts/fault_test.py):
+Pengujian skenario fault recovery otomatis dijalankan melalui modul [scripts/fault_test.py](scripts/fault_test.py):
 
 | Skenario | Deskripsi Pengujian |
 |---|---|
