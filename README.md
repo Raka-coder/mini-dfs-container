@@ -4,6 +4,14 @@
 > **Mata Kuliah:** Komputasi Paralel dan Terdistribusi (3 SKS) — UAS Ganjil 2026/2027  
 > **Stack:** Python 3.12 (Pure) · gRPC Streaming · Podman/WSL2 · SQLite WAL · Prometheus & Grafana
 
+![Python](https://img.shields.io/badge/Python-3.12-blue?logo=python&logoColor=white)
+![gRPC](https://img.shields.io/badge/gRPC-Streaming-4285F4?logo=grpc&logoColor=white)
+![Podman](https://img.shields.io/badge/Podman-WSL2-892CA0?logo=podman&logoColor=white)
+![Prometheus](https://img.shields.io/badge/Prometheus-Monitoring-E6522C?logo=prometheus&logoColor=white)
+![Grafana](https://img.shields.io/badge/Grafana-Dashboard-F46800?logo=grafana&logoColor=white)
+![Tests](https://img.shields.io/badge/Tests-13%2F13%20PASS-brightgreen)
+![License](https://img.shields.io/badge/License-MIT-green)
+
 DFS-X Terminal adalah implementasi sistem berkas terdistribusi mini berbasis CLI, gRPC streaming, dan arsitektur container. Proyek ini mendemonstrasikan koordinasi master-worker, replikasi data dengan anti-affinity ($RF=2$), verifikasi integritas data berbasis SHA-256 bertingkat, pemulihan mandiri saat kegagalan (*fault recovery*), pengujian skalabilitas (2 hingga 16 node), serta visualisasi metrik performa sesuai standar evaluasi ilmiah.
 
 ---
@@ -64,10 +72,9 @@ Tujuan sistem adalah menunjukkan bagaimana file dapat tetap tersedia ketika seba
 28. [Project Structure](#-project-structure)
 29. [Testing](#-testing)
 30. [Pemeliharaan & Pembersihan Resource Disk](#-pemeliharaan--pembersihan-resource-disk)
-31. [Panduan Video Demo (Max 10 Menit)](#-panduan-video-demo-max-10-menit)
-32. [Troubleshooting Umum](#-troubleshooting-umum)
-33. [Cheat Sheet: PowerShell + Podman (Windows 10/11)](#-cheat-sheet-powershell--podman-windows-1011)
-34. [Kepatuhan & Aturan Teknis (Rules of Engagement)](#-kepatuhan--aturan-teknis-rules-of-engagement)
+31. [Troubleshooting Umum](#-troubleshooting-umum)
+32. [Cheat Sheet: PowerShell + Podman (Windows 10/11)](#-cheat-sheet-powershell--podman-windows-1011)
+33. [Kepatuhan & Aturan Teknis (Rules of Engagement)](#-kepatuhan--aturan-teknis-rules-of-engagement)
 
 ---
 
@@ -786,16 +793,6 @@ podman system prune -a --volumes -f
 ```
 
 ---
-
-## 🎬 Panduan Video Demo (Max 10 Menit)
-
-Struktur presentasi video (max 10 menit):
-
-- **0–1 mnt — Topologi:** tampilkan `podman ps`, arsitektur 1 master + N datanode + client, network `dfsnet` dengan static IP.
-- **1–3 mnt — Upload & Verify:** `gen-data --profile lite`, `upload /work/testdata/f001.bin f001.bin`, `info f001.bin` (tunjukkan 2 replika di node berbeda — anti-affinity), `verify f001.bin`.
-- **3–6 mnt — Kill-node demo & auto-recovery:** `stop dfs-dn1`, upload file besar, master menandai node DOWN, realokasi otomatis, `start dfs-dn1`, tunggu re-replication, `status` kembali sehat.
-- **6–8 mnt — Grafik performa:** tampilkan 7 plot di `results/plots/` (speedup, efficiency, throughput vs nodes, scalability, tasks/s, latency, recovery timeline).
-- **8–10 mnt — Kesimpulan:** ringkasan pencapaian (RF=2, anti-affinity, fault recovery F1–F6, skalabilitas 2–16 node), keterbatasan hardware (2 GB RAM VM).
 
 ## 🔧 Troubleshooting Umum
 
